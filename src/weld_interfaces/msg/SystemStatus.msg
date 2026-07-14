@@ -1,0 +1,10 @@
+std_msgs/Header header
+string state
+uint32 raw_observations
+uint32 filtered_observations
+uint32 rejected_observations
+uint32 planning_failures
+uint32 execution_faults
+float64 latest_latency_ms
+string latest_fault
+

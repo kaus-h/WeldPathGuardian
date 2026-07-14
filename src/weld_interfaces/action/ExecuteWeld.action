@@ -1,0 +1,11 @@
+WeldPlan plan
+---
+bool success
+string fault_code
+uint32 completed_waypoints
+float64 execution_time_ms
+---
+uint32 current_waypoint
+float32 completion_percent
+string current_state
+

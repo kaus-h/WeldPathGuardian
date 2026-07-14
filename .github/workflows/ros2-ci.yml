@@ -1,0 +1,19 @@
+name: ROS 2 CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: jazzy
+      - uses: ros-tooling/action-ros-ci@v0.4
+        with:
+          package-name: weld_interfaces seam_sensor seam_perception weld_planner weld_executor system_monitor weld_visualization
+          target-ros2-distro: jazzy
+          vcs-repo-file-url: ""
