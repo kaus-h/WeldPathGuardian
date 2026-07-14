@@ -6,12 +6,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(weld_interfaces REQUIRED)
 
 add_executable(weld_visualization_node src/weld_visualization_node.cpp)
 ament_target_dependencies(weld_visualization_node
   rclcpp
+  std_msgs
   visualization_msgs
   weld_interfaces
 )

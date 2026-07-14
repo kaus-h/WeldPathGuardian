@@ -8,6 +8,7 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_gtest REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(weld_interfaces REQUIRED)
 
@@ -22,6 +23,7 @@ target_link_libraries(seam_perception_node perception_utils)
 ament_target_dependencies(seam_perception_node
   geometry_msgs
   rclcpp
+  std_msgs
   visualization_msgs
   weld_interfaces
 )
