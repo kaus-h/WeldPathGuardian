@@ -30,9 +30,15 @@ Run these on Ubuntu 24.04 with ROS 2 Jazzy:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-colcon build --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+colcon build --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 colcon test --event-handlers console_direct+
 colcon test-result --verbose
+```
+
+Run clang-tidy after generating `compile_commands.json`:
+
+```bash
+clang-tidy -p build src/*/src/*.cpp src/*/test/*.cpp
 ```
 
 ## Demo Checklist
@@ -42,4 +48,3 @@ colcon test-result --verbose
 3. Confirm `/seam/raw`, `/seam/filtered`, `/weld/plan`, and `/weld/status` publish messages.
 4. Confirm RViz marker topics render raw points, filtered line, waypoint arrows, rejected points, and status text.
 5. Record measured performance in `docs/performance-results.md` before using claims externally.
-

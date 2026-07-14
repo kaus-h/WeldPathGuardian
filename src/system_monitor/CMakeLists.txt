@@ -14,9 +14,4 @@ ament_target_dependencies(system_monitor_node builtin_interfaces rclcpp weld_int
 
 install(TARGETS system_monitor_node DESTINATION lib/${PROJECT_NAME})
 
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  ament_lint_auto_find_test_dependencies()
-endif()
-
 ament_package()

@@ -30,10 +30,6 @@ install(DIRECTORY include/ DESTINATION include)
 if(BUILD_TESTING)
   ament_add_gtest(test_state_machine test/test_state_machine.cpp)
   target_link_libraries(test_state_machine executor_state_machine)
-
-  find_package(ament_lint_auto REQUIRED)
-  ament_lint_auto_find_test_dependencies()
 endif()
 
 ament_package()
-

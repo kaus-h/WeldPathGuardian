@@ -19,13 +19,16 @@ jobs:
             clang-format \
             clang-tidy \
             python3-colcon-common-extensions \
+            ros-jazzy-ament-cmake-gtest \
+            ros-jazzy-rclcpp-action \
+            ros-jazzy-tf2 \
             ros-jazzy-tf2-geometry-msgs \
             ros-jazzy-visualization-msgs
       - name: Build
         shell: bash
         run: |
           source /opt/ros/jazzy/setup.bash
-          colcon build --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          colcon build --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       - name: Test
         shell: bash
         run: |

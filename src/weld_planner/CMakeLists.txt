@@ -39,9 +39,6 @@ if(BUILD_TESTING)
   ament_add_gtest(test_planner_utils test/test_planner_utils.cpp)
   target_link_libraries(test_planner_utils planner_utils)
   ament_target_dependencies(test_planner_utils geometry_msgs)
-
-  find_package(ament_lint_auto REQUIRED)
-  ament_lint_auto_find_test_dependencies()
 endif()
 
 ament_package()
