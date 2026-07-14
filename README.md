@@ -91,6 +91,28 @@ colcon test-result --verbose
 
 The tests cover finite-point rejection, smoothing, insufficient geometry, waypoint spacing, curvature/gap validation, and state-machine transitions.
 
+## Development Standards
+
+This repository is intentionally kept reviewable:
+
+- Work on a feature branch such as `codex/weldpath-guardian`.
+- Keep commits scoped to one logical change.
+- Run `git diff --check` before committing.
+- Run launch-file parsing checks after editing launch files:
+
+```bash
+python3 -m py_compile launch/demo.launch.py launch/fault_demo.launch.py
+```
+
+- Run the full ROS build and test suite from Ubuntu 24.04 / ROS 2 Jazzy:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+colcon build --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+colcon test --event-handlers console_direct+
+colcon test-result --verbose
+```
+
 ## Design Tradeoffs
 
 - The perception stage uses deterministic filtering and smoothing rather than ML so failures are explainable.
@@ -103,4 +125,3 @@ The tests cover finite-point rejection, smoothing, insufficient geometry, waypoi
 - No physical robot or industrial welding physics are modeled.
 - MoveIt 2 integration is intentionally left as a stretch feature.
 - Performance numbers should be generated on the target Ubuntu/ROS 2 machine before using them in a resume or demo.
-

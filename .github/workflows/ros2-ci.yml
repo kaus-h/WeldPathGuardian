@@ -12,8 +12,23 @@ jobs:
       - uses: ros-tooling/setup-ros@v0.7
         with:
           required-ros-distributions: jazzy
-      - uses: ros-tooling/action-ros-ci@v0.4
-        with:
-          package-name: weld_interfaces seam_sensor seam_perception weld_planner weld_executor system_monitor weld_visualization
-          target-ros2-distro: jazzy
-          vcs-repo-file-url: ""
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-format \
+            clang-tidy \
+            python3-colcon-common-extensions \
+            ros-jazzy-tf2-geometry-msgs \
+            ros-jazzy-visualization-msgs
+      - name: Build
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - name: Test
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon test --event-handlers console_direct+
+          colcon test-result --verbose
