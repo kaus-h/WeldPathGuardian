@@ -16,7 +16,6 @@ target_include_directories(perception_utils INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(perception_utils INTERFACE geometry_msgs)
 
 add_executable(seam_perception_node src/seam_perception_node.cpp)
 target_link_libraries(seam_perception_node perception_utils)
@@ -40,4 +39,3 @@ if(BUILD_TESTING)
 endif()
 
 ament_package()
-

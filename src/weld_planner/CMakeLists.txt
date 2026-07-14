@@ -18,7 +18,6 @@ target_include_directories(planner_utils INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
-ament_target_dependencies(planner_utils INTERFACE geometry_msgs)
 
 add_executable(weld_planner_node src/weld_planner_node.cpp)
 target_link_libraries(weld_planner_node planner_utils)
@@ -44,4 +43,3 @@ if(BUILD_TESTING)
 endif()
 
 ament_package()
-
