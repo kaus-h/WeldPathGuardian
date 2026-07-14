@@ -36,6 +36,7 @@ def generate_launch_description():
                         "stale_threshold_ms": 350,
                         "smoothing_window": 1,
                         "min_points": 4,
+                        "max_neighbor_distance": 0.2,
                     }
                 ],
             ),
@@ -67,4 +68,3 @@ def generate_launch_description():
             ),
         ]
     )
-

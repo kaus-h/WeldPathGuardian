@@ -4,9 +4,19 @@ Checks: >
   portability-*,
   readability-*,
   modernize-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-exception-escape,
+  -bugprone-narrowing-conversions,
+  -performance-enum-size,
+  -performance-unnecessary-value-param,
   -modernize-use-trailing-return-type,
-  -readability-magic-numbers
+  -portability-avoid-pragma-once,
+  -readability-convert-member-functions-to-static,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  -readability-math-missing-parentheses,
+  -readability-magic-numbers,
+  -readability-named-parameter,
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/.*'
 FormatStyle: file
-

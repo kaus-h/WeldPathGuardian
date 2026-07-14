@@ -123,4 +123,3 @@ inline PlanFault ValidatePath(const std::vector<geometry_msgs::msg::Point>& poin
 }
 
 }  // namespace weld_planner
-

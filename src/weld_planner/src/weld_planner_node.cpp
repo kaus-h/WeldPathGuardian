@@ -105,8 +105,7 @@ class WeldPlannerNode final : public rclcpp::Node {
     arrows.type = visualization_msgs::msg::Marker::LINE_LIST;
     arrows.action = visualization_msgs::msg::Marker::ADD;
     arrows.scale.x = 0.008;
-    arrows.color =
-        plan.valid ? Color(1.0F, 0.85F, 0.05F, 0.95F) : Color(1.0F, 0.05F, 0.05F, 0.95F);
+    arrows.color = plan.valid ? Color(1.0F, 0.85F, 0.05F, 0.95F) : Color(1.0F, 0.05F, 0.05F, 0.95F);
 
     for (const auto& waypoint : plan.waypoints) {
       const auto& start = waypoint.pose.position;

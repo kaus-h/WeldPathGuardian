@@ -1,9 +1,8 @@
-#include "seam_perception/perception_utils.hpp"
-
 #include <limits>
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "seam_perception/perception_utils.hpp"
 
 namespace {
 
@@ -17,15 +16,15 @@ geometry_msgs::msg::Point Point(double x, double y, double z) {
 
 TEST(PerceptionUtils, RejectsNonFinitePoints) {
   EXPECT_TRUE(seam_perception::IsFinitePoint(Point(1.0, 2.0, 3.0)));
-  EXPECT_FALSE(seam_perception::IsFinitePoint(
-      Point(std::numeric_limits<double>::quiet_NaN(), 2.0, 3.0)));
-  EXPECT_FALSE(seam_perception::IsFinitePoint(
-      Point(1.0, std::numeric_limits<double>::infinity(), 3.0)));
+  EXPECT_FALSE(
+      seam_perception::IsFinitePoint(Point(std::numeric_limits<double>::quiet_NaN(), 2.0, 3.0)));
+  EXPECT_FALSE(
+      seam_perception::IsFinitePoint(Point(1.0, std::numeric_limits<double>::infinity(), 3.0)));
 }
 
 TEST(PerceptionUtils, SmoothsNeighboringPoints) {
-  const std::vector<geometry_msgs::msg::Point> points{
-      Point(0.0, 0.0, 0.0), Point(1.0, 3.0, 0.0), Point(2.0, 0.0, 0.0)};
+  const std::vector<geometry_msgs::msg::Point> points{Point(0.0, 0.0, 0.0), Point(1.0, 3.0, 0.0),
+                                                      Point(2.0, 0.0, 0.0)};
 
   const auto smoothed = seam_perception::SmoothPath(points, 1);
 
@@ -35,8 +34,7 @@ TEST(PerceptionUtils, SmoothsNeighboringPoints) {
 }
 
 TEST(PerceptionUtils, DetectsNeighborJump) {
-  const std::vector<geometry_msgs::msg::Point> points{Point(0.0, 0.0, 0.0),
-                                                      Point(0.1, 0.0, 0.0),
+  const std::vector<geometry_msgs::msg::Point> points{Point(0.0, 0.0, 0.0), Point(0.1, 0.0, 0.0),
                                                       Point(1.0, 0.0, 0.0)};
 
   EXPECT_TRUE(seam_perception::HasExcessiveNeighborJump(points, 0.25));
@@ -44,4 +42,3 @@ TEST(PerceptionUtils, DetectsNeighborJump) {
 }
 
 }  // namespace
-

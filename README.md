@@ -86,7 +86,7 @@ Open RViz and add:
 ```bash
 source /opt/ros/jazzy/setup.bash
 colcon test --event-handlers console_direct+
-colcon test-result --verbose
+colcon test-result
 ```
 
 The tests cover finite-point rejection, smoothing, insufficient geometry, waypoint spacing, curvature/gap validation, and state-machine transitions.
@@ -109,13 +109,15 @@ python3 -m py_compile launch/demo.launch.py launch/fault_demo.launch.py
 ```bash
 source /opt/ros/jazzy/setup.bash
 colcon build --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+bash scripts/run_static_checks.sh
 colcon test --event-handlers console_direct+
-colcon test-result --verbose
+colcon test-result
 ```
 
 ## Design Tradeoffs
 
 - The perception stage uses deterministic filtering and smoothing rather than ML so failures are explainable.
+- Gap checks run before smoothing so missing seam segments cannot be averaged into apparently valid geometry.
 - The executor is soft real-time and latency-monitored; it does not claim hard real-time guarantees.
 - The planner rejects suspicious geometry early instead of attempting to repair every malformed path.
 - The default demo auto-executes new plans for a compact visual loop, while the `ExecuteWeld` action remains available for explicit long-running execution requests.

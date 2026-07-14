@@ -60,10 +60,9 @@ class SystemMonitorNode final : public rclcpp::Node {
                 "state=%s raw=%u filtered=%u rejected=%u plan_failures=%u exec_faults=%u "
                 "latency_ms(raw=%.2f filtered=%.2f plan=%.2f) latest_fault=%s",
                 latest_state_.c_str(), raw_observations_.load(), filtered_observations_.load(),
-                rejected_observations_.load(), planning_failures_.load(),
-                execution_faults_.load(), latest_raw_latency_ms_.load(),
-                latest_filtered_latency_ms_.load(), latest_plan_latency_ms_.load(),
-                latest_fault_.c_str());
+                rejected_observations_.load(), planning_failures_.load(), execution_faults_.load(),
+                latest_raw_latency_ms_.load(), latest_filtered_latency_ms_.load(),
+                latest_plan_latency_ms_.load(), latest_fault_.c_str());
   }
 
   std::atomic<uint32_t> raw_observations_{0};

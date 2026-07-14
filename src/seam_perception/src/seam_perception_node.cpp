@@ -32,14 +32,14 @@ class SeamPerceptionNode final : public rclcpp::Node {
     stale_threshold_ms_ = declare_parameter<int>("stale_threshold_ms", 350);
     smoothing_window_ = declare_parameter<int>("smoothing_window", 1);
     min_points_ = declare_parameter<int>("min_points", 4);
+    max_neighbor_distance_ = declare_parameter<double>("max_neighbor_distance", 0.20);
 
     filtered_pub_ = create_publisher<weld_interfaces::msg::FilteredSeam>("/seam/filtered", 10);
     marker_pub_ =
         create_publisher<visualization_msgs::msg::MarkerArray>("/seam/filtered_markers", 10);
     subscription_ = create_subscription<weld_interfaces::msg::SeamObservation>(
-        "/seam/raw", 10, [this](weld_interfaces::msg::SeamObservation::SharedPtr msg) {
-          ProcessObservation(*msg);
-        });
+        "/seam/raw", 10,
+        [this](weld_interfaces::msg::SeamObservation::SharedPtr msg) { ProcessObservation(*msg); });
   }
 
  private:
@@ -59,7 +59,8 @@ class SeamPerceptionNode final : public rclcpp::Node {
     std::vector<float> accepted_confidences;
     for (std::size_t i = 0; i < observation.points.size(); ++i) {
       const auto valid_flag = i < observation.valid.size() && observation.valid[i];
-      const auto confidence = i < observation.confidences.size() ? observation.confidences[i] : 0.0F;
+      const auto confidence =
+          i < observation.confidences.size() ? observation.confidences[i] : 0.0F;
 
       if (!valid_flag || confidence < min_confidence_ ||
           !seam_perception::IsFinitePoint(observation.points[i])) {
@@ -79,6 +80,12 @@ class SeamPerceptionNode final : public rclcpp::Node {
       if (filtered.fault_code == "None") {
         filtered.fault_code = "InsufficientPoints";
       }
+    }
+
+    if (filtered.valid &&
+        seam_perception::HasExcessiveNeighborJump(filtered.points, max_neighbor_distance_)) {
+      filtered.valid = false;
+      filtered.fault_code = "ExcessiveGap";
     }
 
     if (filtered.valid) {
@@ -112,6 +119,7 @@ class SeamPerceptionNode final : public rclcpp::Node {
   int stale_threshold_ms_{350};
   int smoothing_window_{1};
   int min_points_{4};
+  double max_neighbor_distance_{0.20};
   rclcpp::Publisher<weld_interfaces::msg::FilteredSeam>::SharedPtr filtered_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
   rclcpp::Subscription<weld_interfaces::msg::SeamObservation>::SharedPtr subscription_;

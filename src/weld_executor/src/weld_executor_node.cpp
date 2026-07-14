@@ -30,13 +30,12 @@ class WeldExecutorNode final : public rclcpp::Node {
     rclcpp::SubscriptionOptions plan_options;
     plan_options.callback_group = plan_group_;
     plan_sub_ = create_subscription<weld_interfaces::msg::WeldPlan>(
-        "/weld/plan", 10,
-        [this](weld_interfaces::msg::WeldPlan::SharedPtr plan) { OnPlan(*plan); }, plan_options);
+        "/weld/plan", 10, [this](weld_interfaces::msg::WeldPlan::SharedPtr plan) { OnPlan(*plan); },
+        plan_options);
 
     action_server_ = rclcpp_action::create_server<ExecuteWeld>(
         this, "execute_weld",
-        [this](const rclcpp_action::GoalUUID& uuid,
-               std::shared_ptr<const ExecuteWeld::Goal> goal) {
+        [this](const rclcpp_action::GoalUUID& uuid, std::shared_ptr<const ExecuteWeld::Goal> goal) {
           return HandleGoal(uuid, goal);
         },
         [this](const std::shared_ptr<GoalHandleExecuteWeld> goal_handle) {
@@ -47,14 +46,13 @@ class WeldExecutorNode final : public rclcpp::Node {
         },
         rcl_action_server_get_default_options(), action_group_);
 
-    status_timer_ = create_wall_timer(std::chrono::milliseconds(250), [this] { PublishStatus(); },
-                                      status_group_);
+    status_timer_ = create_wall_timer(
+        std::chrono::milliseconds(250), [this] { PublishStatus(); }, status_group_);
   }
 
  private:
-  rclcpp_action::GoalResponse HandleGoal(
-      const rclcpp_action::GoalUUID&,
-      const std::shared_ptr<const ExecuteWeld::Goal> goal) {
+  rclcpp_action::GoalResponse HandleGoal(const rclcpp_action::GoalUUID&,
+                                         const std::shared_ptr<const ExecuteWeld::Goal> goal) {
     if (!goal->plan.valid || goal->plan.waypoints.empty()) {
       RCLCPP_WARN(get_logger(), "Rejecting invalid ExecuteWeld goal: %s",
                   goal->plan.fault_code.c_str());
@@ -62,8 +60,7 @@ class WeldExecutorNode final : public rclcpp::Node {
     }
 
     std::scoped_lock lock(state_mutex_);
-    if (state_ != weld_executor::ExecutionState::kIdle &&
-        !weld_executor::IsTerminal(state_)) {
+    if (state_ != weld_executor::ExecutionState::kIdle && !weld_executor::IsTerminal(state_)) {
       RCLCPP_WARN(get_logger(), "Rejecting ExecuteWeld goal while state is %s",
                   weld_executor::ToString(state_));
       return rclcpp_action::GoalResponse::REJECT;
@@ -71,15 +68,15 @@ class WeldExecutorNode final : public rclcpp::Node {
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
   }
 
-  rclcpp_action::CancelResponse HandleCancel(
-      const std::shared_ptr<GoalHandleExecuteWeld>) {
+  rclcpp_action::CancelResponse HandleCancel(const std::shared_ptr<GoalHandleExecuteWeld>) {
     cancel_requested_.store(true);
     return rclcpp_action::CancelResponse::ACCEPT;
   }
 
   void HandleAccepted(const std::shared_ptr<GoalHandleExecuteWeld> goal_handle) {
-    std::thread([this, goal_handle] { ExecutePlan(goal_handle->get_goal()->plan, goal_handle); })
-        .detach();
+    std::thread([this, goal_handle] {
+      ExecutePlan(goal_handle->get_goal()->plan, goal_handle);
+    }).detach();
   }
 
   void OnPlan(const weld_interfaces::msg::WeldPlan& plan) {
@@ -100,8 +97,7 @@ class WeldExecutorNode final : public rclcpp::Node {
 
   bool BeginExecution() {
     std::scoped_lock lock(state_mutex_);
-    if (state_ != weld_executor::ExecutionState::kIdle &&
-        !weld_executor::IsTerminal(state_)) {
+    if (state_ != weld_executor::ExecutionState::kIdle && !weld_executor::IsTerminal(state_)) {
       return false;
     }
     state_ = weld_executor::ExecutionState::kValidating;
@@ -184,9 +180,8 @@ class WeldExecutorNode final : public rclcpp::Node {
       if (goal_handle) {
         auto feedback = std::make_shared<ExecuteWeld::Feedback>();
         feedback->current_waypoint = static_cast<uint32_t>(i);
-        feedback->completion_percent =
-            static_cast<float>((100.0 * static_cast<double>(i + 1)) /
-                               static_cast<double>(plan.waypoints.size()));
+        feedback->completion_percent = static_cast<float>(
+            (100.0 * static_cast<double>(i + 1)) / static_cast<double>(plan.waypoints.size()));
         feedback->current_state = CurrentState();
         goal_handle->publish_feedback(feedback);
       }
@@ -209,8 +204,7 @@ class WeldExecutorNode final : public rclcpp::Node {
   }
 
   void FinishWithFault(const std::shared_ptr<GoalHandleExecuteWeld>& goal_handle,
-                       const std::string& fault,
-                       std::chrono::steady_clock::time_point start) {
+                       const std::string& fault, std::chrono::steady_clock::time_point start) {
     execution_faults_.fetch_add(1);
     SetLastFault(fault);
     TrySetState(weld_executor::ExecutionState::kFaulted);
@@ -230,7 +224,7 @@ class WeldExecutorNode final : public rclcpp::Node {
   double ElapsedMs(std::chrono::steady_clock::time_point start) const {
     const auto elapsed = std::chrono::steady_clock::now() - start;
     return static_cast<double>(
-        std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count()) /
+               std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count()) /
            1000.0;
   }
 

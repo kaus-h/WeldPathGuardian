@@ -78,4 +78,3 @@ inline bool CanTransition(ExecutionState from, ExecutionState to) {
 }
 
 }  // namespace weld_executor
-

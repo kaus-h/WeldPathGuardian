@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <numbers>
 #include <random>
 #include <string>
 #include <vector>
@@ -16,7 +17,6 @@
 namespace {
 
 using namespace std::chrono_literals;
-constexpr double kPi = 3.14159265358979323846;
 
 geometry_msgs::msg::Point MakePoint(double x, double y, double z) {
   geometry_msgs::msg::Point point;
@@ -49,14 +49,13 @@ class SeamSensorNode final : public rclcpp::Node {
     stale_offset_ms_ = declare_parameter<int>("stale_offset_ms", 800);
 
     observation_pub_ = create_publisher<weld_interfaces::msg::SeamObservation>("/seam/raw", 10);
-    marker_pub_ =
-        create_publisher<visualization_msgs::msg::MarkerArray>("/seam/raw_markers", 10);
+    marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/seam/raw_markers", 10);
 
     const auto period_ms = std::max(1, static_cast<int>(1000.0 / std::max(rate_hz_, 1.0)));
     timer_ = create_wall_timer(std::chrono::milliseconds(period_ms), [this] { PublishSample(); });
 
-    RCLCPP_INFO(get_logger(), "seam_sensor publishing scenario '%s' at %.1f Hz",
-                scenario_.c_str(), rate_hz_);
+    RCLCPP_INFO(get_logger(), "seam_sensor publishing scenario '%s' at %.1f Hz", scenario_.c_str(),
+                rate_hz_);
   }
 
  private:
@@ -70,8 +69,8 @@ class SeamSensorNode final : public rclcpp::Node {
     observation.scenario = scenario;
 
     if (scenario == "stale_messages") {
-      observation.header.stamp =
-          now - rclcpp::Duration::from_nanoseconds(static_cast<int64_t>(stale_offset_ms_) * 1000000);
+      observation.header.stamp = now - rclcpp::Duration::from_nanoseconds(
+                                           static_cast<int64_t>(stale_offset_ms_) * 1000000);
     }
 
     if (scenario == "complete_dropout") {
@@ -92,8 +91,8 @@ class SeamSensorNode final : public rclcpp::Node {
     for (int i = 0; i < count; ++i) {
       const auto t = static_cast<double>(i) / static_cast<double>(count - 1);
       const auto x = t * 1.2;
-      auto y = 0.08 * std::sin(t * 2.2 * kPi);
-      auto z = 0.03 * std::cos(t * kPi);
+      auto y = 0.08 * std::sin(t * 2.2 * std::numbers::pi);
+      auto z = 0.03 * std::cos(t * std::numbers::pi);
 
       if (scenario == "sudden_offset" && t > 0.55) {
         y += 0.09;

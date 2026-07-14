@@ -72,4 +72,3 @@ inline bool HasExcessiveNeighborJump(const std::vector<geometry_msgs::msg::Point
 }
 
 }  // namespace seam_perception
-

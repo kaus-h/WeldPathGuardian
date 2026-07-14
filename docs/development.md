@@ -32,13 +32,13 @@ Run these on Ubuntu 24.04 with ROS 2 Jazzy:
 source /opt/ros/jazzy/setup.bash
 colcon build --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 colcon test --event-handlers console_direct+
-colcon test-result --verbose
+colcon test-result
 ```
 
-Run clang-tidy after generating `compile_commands.json`:
+Run static analysis after generating `compile_commands.json`:
 
 ```bash
-clang-tidy -p build src/*/src/*.cpp src/*/test/*.cpp
+bash scripts/run_static_checks.sh
 ```
 
 ## Demo Checklist
