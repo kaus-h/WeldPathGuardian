@@ -130,10 +130,10 @@ Measured on 2026-07-14 in WSL Ubuntu 24.04 / ROS 2 Jazzy. Full results and raw s
 
 | Scenario | Plan samples | Median perception ms | p95/p99 perception ms | Median planning ms | p95/p99 planning ms | Median end-to-end ms | p95 path error m | Final state |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| clean | 147 | 0.008 | 0.012 / 0.040 | 0.009 | 0.011 / 0.045 | 1.469 | 0.00131 | EXECUTING |
-| gaussian_noise_0.006 | 147 | 0.008 | 0.020 / 0.048 | 0.009 | 0.012 / 0.071 | 1.491 | 0.00365 | EXECUTING |
-| missing_segment | 73 | 0.005 | 0.008 / 0.030 | 0.000 | 0.001 / 0.001 | 1.149 | 0.00000 | FAULTED |
-| low_confidence_recovery | 186 | 0.007 | 0.010 / 0.023 | 0.008 | 0.010 / 0.048 | 1.368 | 0.00263 | EXECUTING |
+| clean | 92 | 0.008 | 0.021 / 0.082 | 0.008 | 0.010 / 0.036 | 1.530 | 0.00131 | READY |
+| gaussian_noise_0.006 | 117 | 0.007 | 0.021 / 0.028 | 0.008 | 0.011 / 0.059 | 1.463 | 0.00394 | EXECUTING |
+| missing_segment | 40 | 0.004 | 0.006 / 0.008 | 0.000 | 0.000 / 0.000 | 1.224 | 0.00000 | FAULTED |
+| low_confidence_recovery | 164 | 0.007 | 0.010 / 0.023 | 0.007 | 0.010 / 0.011 | 1.318 | 0.00263 | EXECUTING |
 
 ## Development Standards
 

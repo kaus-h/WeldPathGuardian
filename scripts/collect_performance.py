@@ -190,8 +190,22 @@ def total_memory_mb():
     return "unknown"
 
 
+def build_compiler_path():
+    for cache_path in sorted((ROOT / "build").glob("*/CMakeCache.txt")):
+        try:
+            lines = cache_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            if line.startswith("CMAKE_CXX_COMPILER:FILEPATH="):
+                compiler_path = line.split("=", 1)[1]
+                if compiler_path:
+                    return compiler_path
+    return os.environ.get("CXX", "c++")
+
+
 def metadata(args):
-    compiler = command_text(["c++", "--version"]).splitlines()[0]
+    compiler = command_text([build_compiler_path(), "--version"]).splitlines()[0]
     return {
         "git_sha": os.environ.get("WELDPATH_GIT_SHA") or command_text(["git", "rev-parse", "HEAD"]),
         "git_dirty": git_dirty(),
