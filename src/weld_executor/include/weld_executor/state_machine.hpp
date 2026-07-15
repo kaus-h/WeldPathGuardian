@@ -52,6 +52,9 @@ inline bool CanTransition(ExecutionState from, ExecutionState to) {
   if (to == ExecutionState::kFaulted || to == ExecutionState::kCancelled) {
     return true;
   }
+  if (to == ExecutionState::kPaused && !IsTerminal(from)) {
+    return true;
+  }
   if (IsTerminal(from)) {
     return to == ExecutionState::kIdle;
   }
@@ -68,7 +71,7 @@ inline bool CanTransition(ExecutionState from, ExecutionState to) {
     case ExecutionState::kExecuting:
       return to == ExecutionState::kPaused || to == ExecutionState::kCompleted;
     case ExecutionState::kPaused:
-      return to == ExecutionState::kExecuting;
+      return to == ExecutionState::kValidating || to == ExecutionState::kExecuting;
     case ExecutionState::kCompleted:
     case ExecutionState::kFaulted:
     case ExecutionState::kCancelled:

@@ -2,6 +2,8 @@ std_msgs/Header header
 geometry_msgs/Point[] points
 float32 mean_confidence
 uint32 rejected_points
+float32 fit_error
+float32 max_gap
+float64 processing_latency_ms
 bool valid
 string fault_code
-

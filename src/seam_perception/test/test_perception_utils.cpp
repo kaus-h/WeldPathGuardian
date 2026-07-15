@@ -41,4 +41,17 @@ TEST(PerceptionUtils, DetectsNeighborJump) {
   EXPECT_FALSE(seam_perception::HasExcessiveNeighborJump(points, 1.0));
 }
 
+TEST(PerceptionUtils, FitsLocalLeastSquaresPath) {
+  const std::vector<geometry_msgs::msg::Point> points{Point(0.0, 1.0, 2.0), Point(1.0, 3.0, 5.0),
+                                                      Point(2.0, 5.0, 8.0)};
+
+  const auto fitted = seam_perception::FitLocalLeastSquaresPath(points, 2);
+
+  ASSERT_EQ(fitted.size(), 3U);
+  EXPECT_NEAR(fitted[0].y, 1.0, 1e-9);
+  EXPECT_NEAR(fitted[1].y, 3.0, 1e-9);
+  EXPECT_NEAR(fitted[2].z, 8.0, 1e-9);
+  EXPECT_NEAR(seam_perception::RootMeanSquareError(points, fitted), 0.0, 1e-9);
+}
+
 }  // namespace

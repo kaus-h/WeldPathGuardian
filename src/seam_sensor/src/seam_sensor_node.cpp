@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -62,6 +63,7 @@ class SeamSensorNode final : public rclcpp::Node {
   void PublishSample() {
     const auto scenario = get_parameter("scenario").as_string();
     const auto now = get_clock()->now();
+    const auto sample_index = sample_count_.fetch_add(1);
 
     weld_interfaces::msg::SeamObservation observation;
     observation.header.frame_id = "weld_cell";
@@ -101,7 +103,7 @@ class SeamSensorNode final : public rclcpp::Node {
 
       auto point = MakePoint(x, y, z);
       if (scenario == "gaussian_noise" || scenario == "missing_segment" ||
-          scenario == "sudden_offset") {
+          scenario == "sudden_offset" || scenario == "low_confidence_recovery") {
         point.x += noise(rng_);
         point.y += noise(rng_);
         point.z += noise(rng_) * 0.5;
@@ -115,8 +117,11 @@ class SeamSensorNode final : public rclcpp::Node {
         valid = false;
       }
 
+      const auto in_confidence_dip =
+          scenario == "low_confidence_recovery" && sample_index >= 10 && sample_index < 80;
+      const auto confidence_baseline = in_confidence_dip ? 0.25 : confidence_mean_;
       const auto confidence =
-          std::clamp(confidence_mean_ + confidence_noise(rng_) - (valid ? 0.0 : 0.35), 0.0, 1.0);
+          std::clamp(confidence_baseline + confidence_noise(rng_) - (valid ? 0.0 : 0.35), 0.0, 1.0);
 
       observation.points.push_back(point);
       observation.confidences.push_back(static_cast<float>(confidence));
@@ -173,6 +178,7 @@ class SeamSensorNode final : public rclcpp::Node {
   double dropout_ratio_{0.08};
   double confidence_mean_{0.92};
   int stale_offset_ms_{800};
+  std::atomic<uint64_t> sample_count_{0};
   std::mt19937 rng_;
   rclcpp::Publisher<weld_interfaces::msg::SeamObservation>::SharedPtr observation_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;

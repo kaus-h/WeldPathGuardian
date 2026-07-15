@@ -7,7 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang-tidy \
     python3-colcon-common-extensions \
     ros-jazzy-ament-cmake-gtest \
+    ros-jazzy-ament-cmake-pytest \
+    ros-jazzy-launch \
+    ros-jazzy-launch-ros \
     ros-jazzy-rclcpp-action \
+    ros-jazzy-rclpy \
     ros-jazzy-rviz2 \
     ros-jazzy-tf2 \
     ros-jazzy-tf2-geometry-msgs \

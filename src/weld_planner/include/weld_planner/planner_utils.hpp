@@ -1,10 +1,17 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <numbers>
 #include <vector>
 
 #include "geometry_msgs/msg/point.hpp"
+#include "geometry_msgs/msg/quaternion.hpp"
+#include "tf2/LinearMath/Matrix3x3.h"
+#include "tf2/LinearMath/Quaternion.h"
+#include "tf2/LinearMath/Vector3.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 namespace weld_planner {
 
@@ -14,6 +21,7 @@ enum class PlanFault {
   kStaleObservation,
   kLowConfidence,
   kExcessiveGap,
+  kExcessiveCurvature,
   kInvalidGeometry,
 };
 
@@ -29,6 +37,8 @@ inline const char* ToString(PlanFault fault) {
       return "LowConfidence";
     case PlanFault::kExcessiveGap:
       return "ExcessiveGap";
+    case PlanFault::kExcessiveCurvature:
+      return "ExcessiveCurvature";
     case PlanFault::kInvalidGeometry:
       return "InvalidGeometry";
   }
@@ -42,12 +52,40 @@ inline double Distance(const geometry_msgs::msg::Point& lhs, const geometry_msgs
   return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+inline tf2::Vector3 ToVector(const geometry_msgs::msg::Point& point) {
+  return {point.x, point.y, point.z};
+}
+
 inline double PathLength(const std::vector<geometry_msgs::msg::Point>& points) {
   double length = 0.0;
   for (std::size_t i = 1; i < points.size(); ++i) {
     length += Distance(points[i - 1], points[i]);
   }
   return length;
+}
+
+inline double SegmentAngle(const tf2::Vector3& first, const tf2::Vector3& second) {
+  const auto first_length = first.length();
+  const auto second_length = second.length();
+  if (first_length <= 1e-9 || second_length <= 1e-9) {
+    return 0.0;
+  }
+  const auto cosine = std::clamp(first.dot(second) / (first_length * second_length), -1.0, 1.0);
+  return std::acos(cosine);
+}
+
+inline double MaxCurvature(const std::vector<geometry_msgs::msg::Point>& points) {
+  double max_curvature = 0.0;
+  for (std::size_t i = 1; i + 1 < points.size(); ++i) {
+    const auto previous = ToVector(points[i]) - ToVector(points[i - 1]);
+    const auto next = ToVector(points[i + 1]) - ToVector(points[i]);
+    const auto average_length = (previous.length() + next.length()) * 0.5;
+    if (average_length <= 1e-9) {
+      continue;
+    }
+    max_curvature = std::max(max_curvature, SegmentAngle(previous, next) / average_length);
+  }
+  return max_curvature;
 }
 
 inline bool HasExcessiveGap(const std::vector<geometry_msgs::msg::Point>& points,
@@ -67,6 +105,57 @@ inline geometry_msgs::msg::Point Interpolate(const geometry_msgs::msg::Point& st
   point.y = start.y + (end.y - start.y) * ratio;
   point.z = start.z + (end.z - start.z) * ratio;
   return point;
+}
+
+inline geometry_msgs::msg::Point CleanReferencePoint(double x_value) {
+  const auto t = std::clamp(x_value / 1.2, 0.0, 1.0);
+  geometry_msgs::msg::Point point;
+  point.x = x_value;
+  point.y = 0.08 * std::sin(t * 2.2 * std::numbers::pi);
+  point.z = 0.03 * std::cos(t * std::numbers::pi);
+  return point;
+}
+
+inline double MeanReferenceError(const std::vector<geometry_msgs::msg::Point>& points) {
+  if (points.empty()) {
+    return 0.0;
+  }
+  double total_error = 0.0;
+  for (const auto& point : points) {
+    total_error += Distance(point, CleanReferencePoint(point.x));
+  }
+  return total_error / static_cast<double>(points.size());
+}
+
+inline geometry_msgs::msg::Quaternion MakeToolOrientation(
+    const geometry_msgs::msg::Point& previous, const geometry_msgs::msg::Point& next,
+    const geometry_msgs::msg::Point& surface_normal) {
+  auto tangent = ToVector(next) - ToVector(previous);
+  if (tangent.length() <= 1e-9) {
+    tangent = {1.0, 0.0, 0.0};
+  }
+  tangent.normalize();
+
+  auto normal = ToVector(surface_normal);
+  if (normal.length() <= 1e-9) {
+    normal = {0.0, 0.0, 1.0};
+  }
+  normal.normalize();
+
+  auto lateral = normal.cross(tangent);
+  if (lateral.length() <= 1e-9) {
+    lateral = tf2::Vector3{0.0, 1.0, 0.0};
+  }
+  lateral.normalize();
+  normal = tangent.cross(lateral);
+  normal.normalize();
+
+  tf2::Matrix3x3 rotation(tangent.x(), lateral.x(), normal.x(), tangent.y(), lateral.y(),
+                          normal.y(), tangent.z(), lateral.z(), normal.z());
+  tf2::Quaternion quaternion;
+  rotation.getRotation(quaternion);
+  quaternion.normalize();
+  return tf2::toMsg(quaternion);
 }
 
 inline std::vector<geometry_msgs::msg::Point> ResamplePath(
@@ -107,7 +196,7 @@ inline std::vector<geometry_msgs::msg::Point> ResamplePath(
 }
 
 inline PlanFault ValidatePath(const std::vector<geometry_msgs::msg::Point>& points,
-                              double max_gap_meters) {
+                              double max_gap_meters, double max_curvature) {
   if (points.size() < 2) {
     return PlanFault::kInsufficientPoints;
   }
@@ -118,6 +207,9 @@ inline PlanFault ValidatePath(const std::vector<geometry_msgs::msg::Point>& poin
   }
   if (HasExcessiveGap(points, max_gap_meters)) {
     return PlanFault::kExcessiveGap;
+  }
+  if (MaxCurvature(points) > max_curvature) {
+    return PlanFault::kExcessiveCurvature;
   }
   return PlanFault::kNone;
 }

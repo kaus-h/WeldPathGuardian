@@ -6,10 +6,22 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     scenario = LaunchConfiguration("scenario")
+    rate_hz = LaunchConfiguration("rate_hz")
+    point_count = LaunchConfiguration("point_count")
+    noise_stddev = LaunchConfiguration("noise_stddev")
+    dropout_ratio = LaunchConfiguration("dropout_ratio")
+    max_gap = LaunchConfiguration("max_gap")
+    max_curvature = LaunchConfiguration("max_curvature")
 
     return LaunchDescription(
         [
             DeclareLaunchArgument("scenario", default_value="gaussian_noise"),
+            DeclareLaunchArgument("rate_hz", default_value="20.0"),
+            DeclareLaunchArgument("point_count", default_value="64"),
+            DeclareLaunchArgument("noise_stddev", default_value="0.004"),
+            DeclareLaunchArgument("dropout_ratio", default_value="0.06"),
+            DeclareLaunchArgument("max_gap", default_value="0.18"),
+            DeclareLaunchArgument("max_curvature", default_value="45.0"),
             Node(
                 package="seam_sensor",
                 executable="seam_sensor_node",
@@ -18,10 +30,10 @@ def generate_launch_description():
                 parameters=[
                     {
                         "scenario": scenario,
-                        "rate_hz": 20.0,
-                        "point_count": 64,
-                        "noise_stddev": 0.004,
-                        "dropout_ratio": 0.06,
+                        "rate_hz": rate_hz,
+                        "point_count": point_count,
+                        "noise_stddev": noise_stddev,
+                        "dropout_ratio": dropout_ratio,
                     }
                 ],
             ),
@@ -45,7 +57,14 @@ def generate_launch_description():
                 executable="weld_planner_node",
                 name="weld_planner",
                 output="screen",
-                parameters=[{"waypoint_spacing": 0.05, "max_gap": 0.18, "tool_speed": 0.04}],
+                parameters=[
+                    {
+                        "waypoint_spacing": 0.05,
+                        "max_gap": max_gap,
+                        "max_curvature": max_curvature,
+                        "tool_speed": 0.04,
+                    }
+                ],
             ),
             Node(
                 package="weld_executor",

@@ -10,6 +10,9 @@
   <depend>builtin_interfaces</depend>
   <depend>rclcpp</depend>
   <depend>weld_interfaces</depend>
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>launch</test_depend>
+  <test_depend>launch_ros</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

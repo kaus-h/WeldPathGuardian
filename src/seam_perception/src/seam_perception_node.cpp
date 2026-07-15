@@ -31,6 +31,7 @@ class SeamPerceptionNode final : public rclcpp::Node {
     min_confidence_ = declare_parameter<double>("min_confidence", 0.55);
     stale_threshold_ms_ = declare_parameter<int>("stale_threshold_ms", 350);
     smoothing_window_ = declare_parameter<int>("smoothing_window", 1);
+    fitting_window_ = declare_parameter<int>("fitting_window", 3);
     min_points_ = declare_parameter<int>("min_points", 4);
     max_neighbor_distance_ = declare_parameter<double>("max_neighbor_distance", 0.20);
 
@@ -44,6 +45,7 @@ class SeamPerceptionNode final : public rclcpp::Node {
 
  private:
   void ProcessObservation(const weld_interfaces::msg::SeamObservation& observation) {
+    const auto processing_start = std::chrono::steady_clock::now();
     weld_interfaces::msg::FilteredSeam filtered;
     filtered.header = observation.header;
     filtered.valid = true;
@@ -57,14 +59,20 @@ class SeamPerceptionNode final : public rclcpp::Node {
     }
 
     std::vector<float> accepted_confidences;
+    std::size_t confidence_rejections = 0;
     for (std::size_t i = 0; i < observation.points.size(); ++i) {
       const auto valid_flag = i < observation.valid.size() && observation.valid[i];
       const auto confidence =
           i < observation.confidences.size() ? observation.confidences[i] : 0.0F;
 
-      if (!valid_flag || confidence < min_confidence_ ||
-          !seam_perception::IsFinitePoint(observation.points[i])) {
+      if (!valid_flag || !seam_perception::IsFinitePoint(observation.points[i])) {
         ++filtered.rejected_points;
+        continue;
+      }
+
+      if (confidence < min_confidence_) {
+        ++filtered.rejected_points;
+        ++confidence_rejections;
         continue;
       }
 
@@ -78,10 +86,11 @@ class SeamPerceptionNode final : public rclcpp::Node {
     if (filtered.points.size() < static_cast<std::size_t>(min_points_)) {
       filtered.valid = false;
       if (filtered.fault_code == "None") {
-        filtered.fault_code = "InsufficientPoints";
+        filtered.fault_code = confidence_rejections > 0 ? "LowConfidence" : "InsufficientPoints";
       }
     }
 
+    filtered.max_gap = static_cast<float>(seam_perception::MaxNeighborDistance(filtered.points));
     if (filtered.valid &&
         seam_perception::HasExcessiveNeighborJump(filtered.points, max_neighbor_distance_)) {
       filtered.valid = false;
@@ -89,9 +98,19 @@ class SeamPerceptionNode final : public rclcpp::Node {
     }
 
     if (filtered.valid) {
-      filtered.points =
+      const auto smoothed =
           seam_perception::SmoothPath(filtered.points, static_cast<std::size_t>(smoothing_window_));
+      filtered.points = seam_perception::FitLocalLeastSquaresPath(
+          smoothed, static_cast<std::size_t>(fitting_window_));
+      filtered.fit_error =
+          static_cast<float>(seam_perception::RootMeanSquareError(smoothed, filtered.points));
     }
+
+    const auto processing_elapsed = std::chrono::steady_clock::now() - processing_start;
+    filtered.processing_latency_ms =
+        static_cast<double>(
+            std::chrono::duration_cast<std::chrono::microseconds>(processing_elapsed).count()) /
+        1000.0;
 
     PublishMarkers(filtered);
     filtered_pub_->publish(filtered);
@@ -118,6 +137,7 @@ class SeamPerceptionNode final : public rclcpp::Node {
   double min_confidence_{0.55};
   int stale_threshold_ms_{350};
   int smoothing_window_{1};
+  int fitting_window_{3};
   int min_points_{4};
   double max_neighbor_distance_{0.20};
   rclcpp::Publisher<weld_interfaces::msg::FilteredSeam>::SharedPtr filtered_pub_;

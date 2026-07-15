@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_gtest REQUIRED)
+find_package(ament_cmake_pytest REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(weld_interfaces REQUIRED)
@@ -30,6 +31,11 @@ install(DIRECTORY include/ DESTINATION include)
 if(BUILD_TESTING)
   ament_add_gtest(test_state_machine test/test_state_machine.cpp)
   target_link_libraries(test_state_machine executor_state_machine)
+  ament_add_pytest_test(test_executor_action_concurrency
+    test/test_executor_action_concurrency.py
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+    TIMEOUT 45
+  )
 endif()
 
 ament_package()

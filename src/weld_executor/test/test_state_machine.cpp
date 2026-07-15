@@ -19,6 +19,14 @@ TEST(StateMachine, AllowsFaultFromAnyNonterminalState) {
   EXPECT_TRUE(weld_executor::CanTransition(ExecutionState::kPaused, ExecutionState::kFaulted));
 }
 
+TEST(StateMachine, AllowsPauseAndResumeForLowConfidenceRecovery) {
+  using weld_executor::ExecutionState;
+
+  EXPECT_TRUE(weld_executor::CanTransition(ExecutionState::kExecuting, ExecutionState::kPaused));
+  EXPECT_TRUE(weld_executor::CanTransition(ExecutionState::kPaused, ExecutionState::kValidating));
+  EXPECT_TRUE(weld_executor::CanTransition(ExecutionState::kPaused, ExecutionState::kExecuting));
+}
+
 TEST(StateMachine, TerminalStatesReturnOnlyToIdle) {
   using weld_executor::ExecutionState;
 

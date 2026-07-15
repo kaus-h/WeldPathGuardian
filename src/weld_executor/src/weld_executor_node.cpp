@@ -83,7 +83,13 @@ class WeldExecutorNode final : public rclcpp::Node {
     if (!plan.valid) {
       planning_failures_.fetch_add(1);
       SetLastFault(plan.fault_code);
-      TrySetState(weld_executor::ExecutionState::kFaulted);
+      if (plan.fault_code == "LowConfidence") {
+        execution_pauses_.fetch_add(1);
+        MarkPauseStarted();
+        TrySetState(weld_executor::ExecutionState::kPaused);
+      } else {
+        TrySetState(weld_executor::ExecutionState::kFaulted);
+      }
       PublishStatus();
       return;
     }
@@ -92,13 +98,20 @@ class WeldExecutorNode final : public rclcpp::Node {
       return;
     }
 
+    latest_path_error_.store(plan.path_error);
     std::thread([this, plan] { ExecutePlan(plan, nullptr); }).detach();
   }
 
   bool BeginExecution() {
     std::scoped_lock lock(state_mutex_);
-    if (state_ != weld_executor::ExecutionState::kIdle && !weld_executor::IsTerminal(state_)) {
+    const auto can_resume = state_ == weld_executor::ExecutionState::kPaused;
+    if (state_ != weld_executor::ExecutionState::kIdle && !weld_executor::IsTerminal(state_) &&
+        !can_resume) {
       return false;
+    }
+    if (can_resume && pause_active_) {
+      latest_recovery_ms_.store(ElapsedMsUnlocked(pause_started_));
+      pause_active_ = false;
     }
     state_ = weld_executor::ExecutionState::kValidating;
     last_fault_ = "None";
@@ -123,9 +136,22 @@ class WeldExecutorNode final : public rclcpp::Node {
     return weld_executor::ToString(state_);
   }
 
+  weld_executor::ExecutionState CurrentExecutionState() const {
+    std::scoped_lock lock(state_mutex_);
+    return state_;
+  }
+
   void SetLastFault(const std::string& fault) {
     std::scoped_lock lock(state_mutex_);
     last_fault_ = fault;
+  }
+
+  void MarkPauseStarted() {
+    std::scoped_lock lock(state_mutex_);
+    if (!pause_active_) {
+      pause_started_ = std::chrono::steady_clock::now();
+      pause_active_ = true;
+    }
   }
 
   void ExecutePlan(const weld_interfaces::msg::WeldPlan& plan,
@@ -176,6 +202,24 @@ class WeldExecutorNode final : public rclcpp::Node {
         return;
       }
 
+      const auto current_state = CurrentExecutionState();
+      if (current_state == weld_executor::ExecutionState::kPaused) {
+        latest_execution_ms_.store(ElapsedMs(start));
+        PublishStatus();
+        if (goal_handle) {
+          auto result = std::make_shared<ExecuteWeld::Result>();
+          result->success = false;
+          result->fault_code = "Paused";
+          result->completed_waypoints = completed_waypoints_.load();
+          result->execution_time_ms = latest_execution_ms_.load();
+          goal_handle->abort(result);
+        }
+        return;
+      }
+      if (current_state == weld_executor::ExecutionState::kFaulted) {
+        return;
+      }
+
       completed_waypoints_.store(static_cast<uint32_t>(i + 1));
       if (goal_handle) {
         auto feedback = std::make_shared<ExecuteWeld::Feedback>();
@@ -189,7 +233,10 @@ class WeldExecutorNode final : public rclcpp::Node {
       std::this_thread::sleep_for(std::chrono::milliseconds(waypoint_delay_ms_));
     }
 
-    TrySetState(weld_executor::ExecutionState::kCompleted);
+    if (CurrentExecutionState() != weld_executor::ExecutionState::kExecuting ||
+        !TrySetState(weld_executor::ExecutionState::kCompleted)) {
+      return;
+    }
     latest_execution_ms_.store(ElapsedMs(start));
     PublishStatus();
 
@@ -222,6 +269,11 @@ class WeldExecutorNode final : public rclcpp::Node {
   }
 
   double ElapsedMs(std::chrono::steady_clock::time_point start) const {
+    std::scoped_lock lock(state_mutex_);
+    return ElapsedMsUnlocked(start);
+  }
+
+  double ElapsedMsUnlocked(std::chrono::steady_clock::time_point start) const {
     const auto elapsed = std::chrono::steady_clock::now() - start;
     return static_cast<double>(
                std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count()) /
@@ -239,7 +291,10 @@ class WeldExecutorNode final : public rclcpp::Node {
     }
     status.planning_failures = planning_failures_.load();
     status.execution_faults = execution_faults_.load();
+    status.execution_pauses = execution_pauses_.load();
     status.latest_latency_ms = latest_execution_ms_.load();
+    status.recovery_time_ms = latest_recovery_ms_.load();
+    status.path_error = latest_path_error_.load();
     status_pub_->publish(status);
   }
 
@@ -251,8 +306,13 @@ class WeldExecutorNode final : public rclcpp::Node {
   std::atomic<uint32_t> completed_waypoints_{0};
   std::atomic<uint32_t> planning_failures_{0};
   std::atomic<uint32_t> execution_faults_{0};
+  std::atomic<uint32_t> execution_pauses_{0};
   std::atomic<double> latest_execution_ms_{0.0};
+  std::atomic<double> latest_recovery_ms_{0.0};
+  std::atomic<double> latest_path_error_{0.0};
   std::string last_fault_{"None"};
+  std::chrono::steady_clock::time_point pause_started_;
+  bool pause_active_{false};
 
   rclcpp::CallbackGroup::SharedPtr plan_group_;
   rclcpp::CallbackGroup::SharedPtr action_group_;

@@ -20,7 +20,12 @@ jobs:
             clang-tidy \
             python3-colcon-common-extensions \
             ros-jazzy-ament-cmake-gtest \
+            ros-jazzy-ament-cmake-pytest \
+            ros-jazzy-launch \
+            ros-jazzy-launch-ros \
             ros-jazzy-rclcpp-action \
+            ros-jazzy-rclpy \
+            ros-jazzy-ros-base \
             ros-jazzy-tf2 \
             ros-jazzy-tf2-geometry-msgs \
             ros-jazzy-visualization-msgs
