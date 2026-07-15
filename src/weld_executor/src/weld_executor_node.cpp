@@ -1,16 +1,22 @@
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
 
+#include "fault_codes.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "weld_executor/state_machine.hpp"
 #include "weld_interfaces/action/execute_weld.hpp"
 #include "weld_interfaces/msg/system_status.hpp"
 #include "weld_interfaces/msg/weld_plan.hpp"
+
+namespace fault_codes = weld_interfaces::fault_codes;
 
 class WeldExecutorNode final : public rclcpp::Node {
  public:
@@ -25,13 +31,15 @@ class WeldExecutorNode final : public rclcpp::Node {
     action_group_ = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
     status_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
-    status_pub_ = create_publisher<weld_interfaces::msg::SystemStatus>("/weld/status", 10);
+    const auto reliable_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
+    status_pub_ =
+        create_publisher<weld_interfaces::msg::SystemStatus>("/weld/status", reliable_qos);
 
     rclcpp::SubscriptionOptions plan_options;
     plan_options.callback_group = plan_group_;
     plan_sub_ = create_subscription<weld_interfaces::msg::WeldPlan>(
-        "/weld/plan", 10, [this](weld_interfaces::msg::WeldPlan::SharedPtr plan) { OnPlan(*plan); },
-        plan_options);
+        "/weld/plan", reliable_qos,
+        [this](weld_interfaces::msg::WeldPlan::SharedPtr plan) { OnPlan(*plan); }, plan_options);
 
     action_server_ = rclcpp_action::create_server<ExecuteWeld>(
         this, "execute_weld",
@@ -48,9 +56,23 @@ class WeldExecutorNode final : public rclcpp::Node {
 
     status_timer_ = create_wall_timer(
         std::chrono::milliseconds(250), [this] { PublishStatus(); }, status_group_);
+
+    worker_ = std::jthread([this](std::stop_token stop_token) { WorkerLoop(stop_token); });
+  }
+
+  ~WeldExecutorNode() override {
+    if (worker_.joinable()) {
+      worker_.request_stop();
+      job_cv_.notify_all();
+    }
   }
 
  private:
+  struct ExecutionJob {
+    weld_interfaces::msg::WeldPlan plan;
+    std::shared_ptr<GoalHandleExecuteWeld> goal_handle;
+  };
+
   rclcpp_action::GoalResponse HandleGoal(const rclcpp_action::GoalUUID&,
                                          const std::shared_ptr<const ExecuteWeld::Goal> goal) {
     if (!goal->plan.valid || goal->plan.waypoints.empty()) {
@@ -59,10 +81,14 @@ class WeldExecutorNode final : public rclcpp::Node {
       return rclcpp_action::GoalResponse::REJECT;
     }
 
-    std::scoped_lock lock(state_mutex_);
-    if (state_ != weld_executor::ExecutionState::kIdle && !weld_executor::IsTerminal(state_)) {
+    const auto state = CurrentExecutionState();
+    if (state != weld_executor::ExecutionState::kIdle && !weld_executor::IsTerminal(state)) {
       RCLCPP_WARN(get_logger(), "Rejecting ExecuteWeld goal while state is %s",
-                  weld_executor::ToString(state_));
+                  weld_executor::ToString(state));
+      return rclcpp_action::GoalResponse::REJECT;
+    }
+    if (WorkerHasQueuedOrRunningJob()) {
+      RCLCPP_WARN(get_logger(), "Rejecting ExecuteWeld goal while worker is busy");
       return rclcpp_action::GoalResponse::REJECT;
     }
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
@@ -74,16 +100,16 @@ class WeldExecutorNode final : public rclcpp::Node {
   }
 
   void HandleAccepted(const std::shared_ptr<GoalHandleExecuteWeld> goal_handle) {
-    std::thread([this, goal_handle] {
-      ExecutePlan(goal_handle->get_goal()->plan, goal_handle);
-    }).detach();
+    if (!EnqueueExecution(goal_handle->get_goal()->plan, goal_handle)) {
+      CompleteAborted(goal_handle, "Busy", 0, 0.0);
+    }
   }
 
   void OnPlan(const weld_interfaces::msg::WeldPlan& plan) {
     if (!plan.valid) {
       planning_failures_.fetch_add(1);
       SetLastFault(plan.fault_code);
-      if (plan.fault_code == "LowConfidence") {
+      if (plan.fault_code == fault_codes::kLowConfidence) {
         execution_pauses_.fetch_add(1);
         MarkPauseStarted();
         TrySetState(weld_executor::ExecutionState::kPaused);
@@ -99,7 +125,53 @@ class WeldExecutorNode final : public rclcpp::Node {
     }
 
     latest_path_error_.store(plan.path_error);
-    std::thread([this, plan] { ExecutePlan(plan, nullptr); }).detach();
+    EnqueueExecution(plan, nullptr);
+  }
+
+  bool EnqueueExecution(const weld_interfaces::msg::WeldPlan& plan,
+                        std::shared_ptr<GoalHandleExecuteWeld> goal_handle) {
+    {
+      std::scoped_lock lock(job_mutex_);
+      if (worker_busy_ || has_pending_job_) {
+        return false;
+      }
+      ExecutionJob job;
+      job.plan = plan;
+      job.goal_handle = std::move(goal_handle);
+      pending_job_ = std::move(job);
+      has_pending_job_ = true;
+    }
+    job_cv_.notify_one();
+    return true;
+  }
+
+  bool WorkerHasQueuedOrRunningJob() const {
+    std::scoped_lock lock(job_mutex_);
+    return worker_busy_ || has_pending_job_;
+  }
+
+  void WorkerLoop(std::stop_token stop_token) {
+    while (!stop_token.stop_requested()) {
+      ExecutionJob job;
+      {
+        std::unique_lock lock(job_mutex_);
+        job_cv_.wait(lock, stop_token, [this] { return has_pending_job_; });
+        if (stop_token.stop_requested()) {
+          return;
+        }
+        job = std::move(pending_job_);
+        has_pending_job_ = false;
+        worker_busy_ = true;
+      }
+
+      ExecutePlan(job.plan, job.goal_handle);
+
+      {
+        std::scoped_lock lock(job_mutex_);
+        worker_busy_ = false;
+      }
+      job_cv_.notify_all();
+    }
   }
 
   bool BeginExecution() {
@@ -114,7 +186,7 @@ class WeldExecutorNode final : public rclcpp::Node {
       pause_active_ = false;
     }
     state_ = weld_executor::ExecutionState::kValidating;
-    last_fault_ = "None";
+    last_fault_ = fault_codes::kNone;
     cancel_requested_.store(false);
     completed_waypoints_.store(0);
     return true;
@@ -124,7 +196,7 @@ class WeldExecutorNode final : public rclcpp::Node {
     std::scoped_lock lock(state_mutex_);
     if (!weld_executor::CanTransition(state_, target)) {
       state_ = weld_executor::ExecutionState::kFaulted;
-      last_fault_ = "InvalidStateTransition";
+      last_fault_ = fault_codes::kInvalidStateTransition;
       return false;
     }
     state_ = target;
@@ -141,9 +213,14 @@ class WeldExecutorNode final : public rclcpp::Node {
     return state_;
   }
 
-  void SetLastFault(const std::string& fault) {
+  void SetLastFault(std::string_view fault) {
     std::scoped_lock lock(state_mutex_);
     last_fault_ = fault;
+  }
+
+  std::string LastFault() const {
+    std::scoped_lock lock(state_mutex_);
+    return last_fault_.empty() ? std::string{fault_codes::kNone} : last_fault_;
   }
 
   void MarkPauseStarted() {
@@ -158,47 +235,44 @@ class WeldExecutorNode final : public rclcpp::Node {
                    std::shared_ptr<GoalHandleExecuteWeld> goal_handle) {
     const auto start = std::chrono::steady_clock::now();
     if (!BeginExecution()) {
-      if (goal_handle) {
-        auto result = std::make_shared<ExecuteWeld::Result>();
-        result->success = false;
-        result->fault_code = "Busy";
-        result->completed_waypoints = 0;
-        result->execution_time_ms = 0.0;
-        goal_handle->abort(result);
-      }
+      CompleteAborted(goal_handle, fault_codes::kBusy, 0, 0.0);
       return;
     }
     PublishStatus();
 
     if (!plan.valid || plan.waypoints.empty()) {
-      FinishWithFault(goal_handle, "InvalidPlan", start);
+      FinishWithFault(goal_handle, fault_codes::kInvalidPlan, start);
       return;
     }
 
-    TrySetState(weld_executor::ExecutionState::kPlanning);
+    if (!TrySetState(weld_executor::ExecutionState::kPlanning)) {
+      FinishWithFault(goal_handle, LastFault(), start);
+      return;
+    }
     PublishStatus();
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
-    TrySetState(weld_executor::ExecutionState::kReady);
+    if (!TrySetState(weld_executor::ExecutionState::kReady)) {
+      FinishWithFault(goal_handle, LastFault(), start);
+      return;
+    }
     PublishStatus();
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
-    TrySetState(weld_executor::ExecutionState::kExecuting);
+    if (!TrySetState(weld_executor::ExecutionState::kExecuting)) {
+      FinishWithFault(goal_handle, LastFault(), start);
+      return;
+    }
     PublishStatus();
 
     for (std::size_t i = 0; i < plan.waypoints.size(); ++i) {
       if (cancel_requested_.load() || (goal_handle && goal_handle->is_canceling())) {
         TrySetState(weld_executor::ExecutionState::kCancelled);
-        SetLastFault("Cancelled");
+        SetLastFault(fault_codes::kCancelled);
+        latest_execution_ms_.store(ElapsedMs(start));
         PublishStatus();
-        if (goal_handle) {
-          auto result = std::make_shared<ExecuteWeld::Result>();
-          result->success = false;
-          result->fault_code = "Cancelled";
-          result->completed_waypoints = completed_waypoints_.load();
-          result->execution_time_ms = ElapsedMs(start);
-          goal_handle->canceled(result);
-        }
+        CompleteCanceled(goal_handle, fault_codes::kCancelled, completed_waypoints_.load(),
+                         latest_execution_ms_.load());
         return;
       }
 
@@ -206,17 +280,15 @@ class WeldExecutorNode final : public rclcpp::Node {
       if (current_state == weld_executor::ExecutionState::kPaused) {
         latest_execution_ms_.store(ElapsedMs(start));
         PublishStatus();
-        if (goal_handle) {
-          auto result = std::make_shared<ExecuteWeld::Result>();
-          result->success = false;
-          result->fault_code = "Paused";
-          result->completed_waypoints = completed_waypoints_.load();
-          result->execution_time_ms = latest_execution_ms_.load();
-          goal_handle->abort(result);
-        }
+        CompleteAborted(goal_handle, fault_codes::kPaused, completed_waypoints_.load(),
+                        latest_execution_ms_.load());
         return;
       }
       if (current_state == weld_executor::ExecutionState::kFaulted) {
+        latest_execution_ms_.store(ElapsedMs(start));
+        PublishStatus();
+        CompleteAborted(goal_handle, LastFault(), completed_waypoints_.load(),
+                        latest_execution_ms_.load());
         return;
       }
 
@@ -235,37 +307,69 @@ class WeldExecutorNode final : public rclcpp::Node {
 
     if (CurrentExecutionState() != weld_executor::ExecutionState::kExecuting ||
         !TrySetState(weld_executor::ExecutionState::kCompleted)) {
+      const auto current_fault = LastFault();
+      const auto fault = current_fault == fault_codes::kNone
+                             ? std::string{fault_codes::kInterrupted}
+                             : current_fault;
+      CompleteAborted(goal_handle, fault, completed_waypoints_.load(), latest_execution_ms_.load());
       return;
     }
     latest_execution_ms_.store(ElapsedMs(start));
     PublishStatus();
 
-    if (goal_handle) {
-      auto result = std::make_shared<ExecuteWeld::Result>();
-      result->success = true;
-      result->fault_code = "None";
-      result->completed_waypoints = completed_waypoints_.load();
-      result->execution_time_ms = latest_execution_ms_.load();
-      goal_handle->succeed(result);
-    }
+    CompleteSucceeded(goal_handle, completed_waypoints_.load(), latest_execution_ms_.load());
   }
 
   void FinishWithFault(const std::shared_ptr<GoalHandleExecuteWeld>& goal_handle,
-                       const std::string& fault, std::chrono::steady_clock::time_point start) {
+                       std::string_view fault, std::chrono::steady_clock::time_point start) {
     execution_faults_.fetch_add(1);
     SetLastFault(fault);
     TrySetState(weld_executor::ExecutionState::kFaulted);
     latest_execution_ms_.store(ElapsedMs(start));
     PublishStatus();
 
-    if (goal_handle) {
-      auto result = std::make_shared<ExecuteWeld::Result>();
-      result->success = false;
-      result->fault_code = fault;
-      result->completed_waypoints = completed_waypoints_.load();
-      result->execution_time_ms = latest_execution_ms_.load();
-      goal_handle->abort(result);
+    CompleteAborted(goal_handle, fault, completed_waypoints_.load(), latest_execution_ms_.load());
+  }
+
+  void CompleteSucceeded(const std::shared_ptr<GoalHandleExecuteWeld>& goal_handle,
+                         uint32_t completed_waypoints, double execution_time_ms) const {
+    if (!goal_handle) {
+      return;
     }
+    auto result = std::make_shared<ExecuteWeld::Result>();
+    result->success = true;
+    result->fault_code = fault_codes::kNone;
+    result->completed_waypoints = completed_waypoints;
+    result->execution_time_ms = execution_time_ms;
+    goal_handle->succeed(result);
+  }
+
+  void CompleteAborted(const std::shared_ptr<GoalHandleExecuteWeld>& goal_handle,
+                       std::string_view fault, uint32_t completed_waypoints,
+                       double execution_time_ms) const {
+    if (!goal_handle) {
+      return;
+    }
+    auto result = std::make_shared<ExecuteWeld::Result>();
+    result->success = false;
+    result->fault_code = fault;
+    result->completed_waypoints = completed_waypoints;
+    result->execution_time_ms = execution_time_ms;
+    goal_handle->abort(result);
+  }
+
+  void CompleteCanceled(const std::shared_ptr<GoalHandleExecuteWeld>& goal_handle,
+                        std::string_view fault, uint32_t completed_waypoints,
+                        double execution_time_ms) const {
+    if (!goal_handle) {
+      return;
+    }
+    auto result = std::make_shared<ExecuteWeld::Result>();
+    result->success = false;
+    result->fault_code = fault;
+    result->completed_waypoints = completed_waypoints;
+    result->execution_time_ms = execution_time_ms;
+    goal_handle->canceled(result);
   }
 
   double ElapsedMs(std::chrono::steady_clock::time_point start) const {
@@ -287,7 +391,7 @@ class WeldExecutorNode final : public rclcpp::Node {
     {
       std::scoped_lock lock(state_mutex_);
       status.state = weld_executor::ToString(state_);
-      status.latest_fault = last_fault_.empty() ? "None" : last_fault_;
+      status.latest_fault = last_fault_.empty() ? fault_codes::kNone : last_fault_;
     }
     status.planning_failures = planning_failures_.load();
     status.execution_faults = execution_faults_.load();
@@ -310,9 +414,15 @@ class WeldExecutorNode final : public rclcpp::Node {
   std::atomic<double> latest_execution_ms_{0.0};
   std::atomic<double> latest_recovery_ms_{0.0};
   std::atomic<double> latest_path_error_{0.0};
-  std::string last_fault_{"None"};
+  std::string last_fault_{fault_codes::kNone};
   std::chrono::steady_clock::time_point pause_started_;
   bool pause_active_{false};
+  mutable std::mutex job_mutex_;
+  std::condition_variable_any job_cv_;
+  ExecutionJob pending_job_;
+  bool has_pending_job_{false};
+  bool worker_busy_{false};
+  std::jthread worker_;
 
   rclcpp::CallbackGroup::SharedPtr plan_group_;
   rclcpp::CallbackGroup::SharedPtr action_group_;

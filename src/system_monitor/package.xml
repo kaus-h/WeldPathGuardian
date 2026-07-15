@@ -3,11 +3,12 @@
   <name>system_monitor</name>
   <version>0.1.0</version>
   <description>Health metrics and observability node for WeldPath Guardian.</description>
-  <maintainer email="manish@example.com">Manish Kalra</maintainer>
+  <maintainer email="kaustav.kalra123@gmail.com">Kaustav Kalra</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>builtin_interfaces</depend>
+  <depend>geometry_msgs</depend>
   <depend>rclcpp</depend>
   <depend>weld_interfaces</depend>
   <test_depend>ament_cmake_pytest</test_depend>

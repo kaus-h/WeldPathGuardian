@@ -40,7 +40,8 @@ std_msgs::msg::ColorRGBA Color(float r, float g, float b, float a) {
 
 class SeamSensorNode final : public rclcpp::Node {
  public:
-  SeamSensorNode() : Node("seam_sensor"), rng_(std::random_device{}()) {
+  // NOLINTNEXTLINE(bugprone-random-generator-seed): deterministic simulation seed is a parameter.
+  SeamSensorNode() : Node("seam_sensor") {
     scenario_ = declare_parameter<std::string>("scenario", "gaussian_noise");
     rate_hz_ = declare_parameter<double>("rate_hz", 20.0);
     point_count_ = declare_parameter<int>("point_count", 60);
@@ -48,15 +49,19 @@ class SeamSensorNode final : public rclcpp::Node {
     dropout_ratio_ = declare_parameter<double>("dropout_ratio", 0.08);
     confidence_mean_ = declare_parameter<double>("confidence_mean", 0.92);
     stale_offset_ms_ = declare_parameter<int>("stale_offset_ms", 800);
+    seed_ = declare_parameter<int>("seed", 42);
+    rng_.seed(static_cast<std::mt19937::result_type>(seed_));
 
-    observation_pub_ = create_publisher<weld_interfaces::msg::SeamObservation>("/seam/raw", 10);
-    marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/seam/raw_markers", 10);
+    observation_pub_ = create_publisher<weld_interfaces::msg::SeamObservation>(
+        "/seam/raw", rclcpp::SensorDataQoS());
+    marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+        "/seam/raw_markers", rclcpp::QoS(rclcpp::KeepLast(10)).reliable());
 
     const auto period_ms = std::max(1, static_cast<int>(1000.0 / std::max(rate_hz_, 1.0)));
     timer_ = create_wall_timer(std::chrono::milliseconds(period_ms), [this] { PublishSample(); });
 
-    RCLCPP_INFO(get_logger(), "seam_sensor publishing scenario '%s' at %.1f Hz", scenario_.c_str(),
-                rate_hz_);
+    RCLCPP_INFO(get_logger(), "seam_sensor publishing scenario '%s' at %.1f Hz with seed %d",
+                scenario_.c_str(), rate_hz_, seed_);
   }
 
  private:
@@ -178,6 +183,7 @@ class SeamSensorNode final : public rclcpp::Node {
   double dropout_ratio_{0.08};
   double confidence_mean_{0.92};
   int stale_offset_ms_{800};
+  int seed_{42};
   std::atomic<uint64_t> sample_count_{0};
   std::mt19937 rng_;
   rclcpp::Publisher<weld_interfaces::msg::SeamObservation>::SharedPtr observation_pub_;

@@ -3,9 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <numbers>
+#include <string_view>
 #include <vector>
 
+#include "fault_codes.hpp"
 #include "geometry_msgs/msg/point.hpp"
 #include "geometry_msgs/msg/quaternion.hpp"
 #include "tf2/LinearMath/Matrix3x3.h"
@@ -25,24 +26,26 @@ enum class PlanFault {
   kInvalidGeometry,
 };
 
-inline const char* ToString(PlanFault fault) {
+inline std::string_view ToString(PlanFault fault) {
+  namespace fault_codes = weld_interfaces::fault_codes;
+
   switch (fault) {
     case PlanFault::kNone:
-      return "None";
+      return fault_codes::ToString(fault_codes::FaultCode::kNone);
     case PlanFault::kInsufficientPoints:
-      return "InsufficientPoints";
+      return fault_codes::ToString(fault_codes::FaultCode::kInsufficientPoints);
     case PlanFault::kStaleObservation:
-      return "StaleObservation";
+      return fault_codes::ToString(fault_codes::FaultCode::kStaleObservation);
     case PlanFault::kLowConfidence:
-      return "LowConfidence";
+      return fault_codes::ToString(fault_codes::FaultCode::kLowConfidence);
     case PlanFault::kExcessiveGap:
-      return "ExcessiveGap";
+      return fault_codes::ToString(fault_codes::FaultCode::kExcessiveGap);
     case PlanFault::kExcessiveCurvature:
-      return "ExcessiveCurvature";
+      return fault_codes::ToString(fault_codes::FaultCode::kExcessiveCurvature);
     case PlanFault::kInvalidGeometry:
-      return "InvalidGeometry";
+      return fault_codes::ToString(fault_codes::FaultCode::kInvalidGeometry);
   }
-  return "InvalidGeometry";
+  return fault_codes::ToString(fault_codes::FaultCode::kInvalidGeometry);
 }
 
 inline double Distance(const geometry_msgs::msg::Point& lhs, const geometry_msgs::msg::Point& rhs) {
@@ -105,26 +108,6 @@ inline geometry_msgs::msg::Point Interpolate(const geometry_msgs::msg::Point& st
   point.y = start.y + (end.y - start.y) * ratio;
   point.z = start.z + (end.z - start.z) * ratio;
   return point;
-}
-
-inline geometry_msgs::msg::Point CleanReferencePoint(double x_value) {
-  const auto t = std::clamp(x_value / 1.2, 0.0, 1.0);
-  geometry_msgs::msg::Point point;
-  point.x = x_value;
-  point.y = 0.08 * std::sin(t * 2.2 * std::numbers::pi);
-  point.z = 0.03 * std::cos(t * std::numbers::pi);
-  return point;
-}
-
-inline double MeanReferenceError(const std::vector<geometry_msgs::msg::Point>& points) {
-  if (points.empty()) {
-    return 0.0;
-  }
-  double total_error = 0.0;
-  for (const auto& point : points) {
-    total_error += Distance(point, CleanReferencePoint(point.x));
-  }
-  return total_error / static_cast<double>(points.size());
 }
 
 inline geometry_msgs::msg::Quaternion MakeToolOrientation(
@@ -196,7 +179,7 @@ inline std::vector<geometry_msgs::msg::Point> ResamplePath(
 }
 
 inline PlanFault ValidatePath(const std::vector<geometry_msgs::msg::Point>& points,
-                              double max_gap_meters, double max_curvature) {
+                              double max_gap_meters, double max_curvature_rad_per_meter) {
   if (points.size() < 2) {
     return PlanFault::kInsufficientPoints;
   }
@@ -208,7 +191,7 @@ inline PlanFault ValidatePath(const std::vector<geometry_msgs::msg::Point>& poin
   if (HasExcessiveGap(points, max_gap_meters)) {
     return PlanFault::kExcessiveGap;
   }
-  if (MaxCurvature(points) > max_curvature) {
+  if (MaxCurvature(points) > max_curvature_rad_per_meter) {
     return PlanFault::kExcessiveCurvature;
   }
   return PlanFault::kNone;

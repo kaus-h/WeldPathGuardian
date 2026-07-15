@@ -38,7 +38,7 @@ install(DIRECTORY include/ DESTINATION include)
 if(BUILD_TESTING)
   ament_add_gtest(test_planner_utils test/test_planner_utils.cpp)
   target_link_libraries(test_planner_utils planner_utils)
-  ament_target_dependencies(test_planner_utils geometry_msgs tf2 tf2_geometry_msgs)
+  ament_target_dependencies(test_planner_utils geometry_msgs tf2 tf2_geometry_msgs weld_interfaces)
 endif()
 
 ament_package()

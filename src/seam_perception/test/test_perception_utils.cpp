@@ -54,4 +54,16 @@ TEST(PerceptionUtils, FitsLocalLeastSquaresPath) {
   EXPECT_NEAR(seam_perception::RootMeanSquareError(points, fitted), 0.0, 1e-9);
 }
 
+TEST(PerceptionUtils, FitsVerticalPathWithoutMonotonicX) {
+  const std::vector<geometry_msgs::msg::Point> points{Point(0.0, 0.0, 0.0), Point(0.0, 1.0, 1.0),
+                                                      Point(0.0, 2.0, 2.0)};
+
+  const auto fitted = seam_perception::FitLocalLeastSquaresPath(points, 2);
+
+  ASSERT_EQ(fitted.size(), 3U);
+  EXPECT_NEAR(fitted[0].x, 0.0, 1e-9);
+  EXPECT_NEAR(fitted[1].y, 1.0, 1e-9);
+  EXPECT_NEAR(fitted[2].z, 2.0, 1e-9);
+}
+
 }  // namespace

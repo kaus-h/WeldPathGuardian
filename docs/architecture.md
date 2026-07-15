@@ -32,13 +32,15 @@ WeldPath Guardian is organized as a small ROS 2 graph that mirrors a perception-
 
 The executor node uses separate callback groups for plan input, action handling, and status publishing. Shared state is protected with a mutex, while cancellation and fault flags use atomics. Execution work runs outside the state lock.
 
+Plans are serialized through one managed `std::jthread` worker and a condition-variable mailbox. The node destructor requests worker shutdown and wakes the worker before destruction, avoiding detached threads that could outlive the node.
+
 The launch files use ROS 2 processes, so callbacks across nodes are naturally distributed. The executor itself is written to run correctly under a `MultiThreadedExecutor`.
 
-The concurrency tests exercise simultaneous action goals and cancellation while execution is advancing through waypoints. Runtime launch tests exercise clean data, missing-segment faulting, and low-confidence pause/recovery behavior.
+The concurrency tests exercise simultaneous action goals, cancellation while execution is advancing through waypoints, and external plan faults while an accepted action is active. Every accepted action path resolves through `succeed`, `abort`, or `canceled`. Runtime launch tests exercise clean data, missing-segment faulting, and low-confidence pause/recovery behavior.
 
 ## Fault Model
 
-Faults are represented as strings at message boundaries to keep RViz, logging, and CLI inspection simple:
+Faults are represented as strings at message boundaries to keep RViz, logging, and CLI inspection simple. C++ nodes use the shared `weld_interfaces::fault_codes::FaultCode` enum and `ToString()` helpers so the string values have one typed source of truth:
 
 - `None`
 - `InsufficientPoints`
@@ -54,5 +56,22 @@ Faults are represented as strings at message boundaries to keep RViz, logging, a
 
 `FilteredSeam` and `WeldPlan` carry component `processing_latency_ms` values.
 `SystemStatus` reports planning failures, execution faults, execution pauses,
-recovery time, execution latency, and path error against the clean reference
-seam model used by the simulator.
+recovery time, execution latency, and path error.
+
+The planner does not know simulator ground truth. Path error against the clean
+simulator reference curve is computed by `system_monitor` and the performance
+collector for evaluation only.
+
+The performance collector subscribes to the graph and records per-message
+perception latency, planning latency, end-to-end message age, path error,
+sample counts, p95/p99/max/stddev, input jitter, sustained throughput, seed,
+git/build metadata, CPU count, and memory.
+
+## QoS And Units
+
+Raw seam observations use sensor-data QoS. Filtered seams, weld plans, execution
+status, and RViz marker topics use reliable keep-last QoS because those outputs
+represent decisions or operator-facing state.
+
+Curvature thresholds are expressed as radians per meter and configured through
+`max_curvature_rad_per_meter`.

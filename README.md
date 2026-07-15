@@ -1,5 +1,7 @@
 # WeldPath Guardian
 
+[![ROS 2 CI](https://github.com/kaus-h/WeldPathGuardian/actions/workflows/ros2-ci.yml/badge.svg?branch=weldpathG)](https://github.com/kaus-h/WeldPathGuardian/actions/workflows/ros2-ci.yml)
+
 WeldPath Guardian is a C++20/ROS 2 simulation of a fault-aware robotic welding pipeline. It converts noisy 3D seam observations into validated tool paths, executes them through a cancellable state machine, and monitors latency, data quality, and fault recovery. The project focuses on modular robotics architecture, deterministic behavior, concurrency, testing, and reliability under imperfect sensor conditions.
 
 ## Architecture
@@ -80,7 +82,7 @@ Common scenarios:
 The demo launch accepts parameter overrides for measured runs:
 
 ```bash
-ros2 launch ./launch/demo.launch.py scenario:=gaussian_noise noise_stddev:=0.010 dropout_ratio:=0.10
+ros2 launch ./launch/demo.launch.py scenario:=gaussian_noise noise_stddev:=0.010 dropout_ratio:=0.10 seed:=42
 ```
 
 Open RViz and add:
@@ -90,6 +92,28 @@ Open RViz and add:
 - `MarkerArray` on `/weld/plan_markers`
 - `MarkerArray` on `/weld/status_markers`
 
+## Docker
+
+Build and run the graph-only demo:
+
+```bash
+docker build -f docker/Dockerfile -t weldpath-guardian .
+docker run --rm weldpath-guardian
+```
+
+The image installs RViz, but graphical RViz from Docker needs host display configuration. On Linux/X11, one common local-only pattern is:
+
+```bash
+xhost +local:docker
+docker run --rm -it \
+  --env DISPLAY=$DISPLAY \
+  --volume /tmp/.X11-unix:/tmp/.X11-unix \
+  weldpath-guardian \
+  bash -lc "source /opt/ros/jazzy/setup.bash && source install/setup.bash && rviz2"
+```
+
+On Windows/WSL, use WSLg or an X server and verify `rviz2` opens before recording.
+
 ## Test
 
 ```bash
@@ -98,18 +122,18 @@ colcon test --event-handlers console_direct+
 colcon test-result
 ```
 
-The tests cover finite-point rejection, local least-squares path fitting, insufficient geometry, waypoint spacing, curvature/gap validation, surface-normal orientation, state-machine transitions, action cancellation/concurrency, and runtime launch behavior for clean, missing-segment, and low-confidence recovery scenarios.
+The tests cover finite-point rejection, arc-length local least-squares path fitting, insufficient geometry, waypoint spacing, curvature/gap validation, surface-normal orientation, state-machine transitions, action cancellation/concurrency, external-fault action abortion, and runtime launch behavior for clean, missing-segment, and low-confidence recovery scenarios.
 
 ## Performance Snapshot
 
 Measured on 2026-07-14 in WSL Ubuntu 24.04 / ROS 2 Jazzy. Full results and raw samples are in [docs/performance-results.md](docs/performance-results.md) and `docs/performance-latest.json`.
 
-| Scenario | Median perception ms | Median planning ms | Median end-to-end ms | Recovery ms | Max path error m | Final state |
-| --- | ---: | ---: | ---: | ---: | ---: | --- |
-| clean | 0.007 | 0.0115 | 0.87 | 0.00 | 0.00131 | EXECUTING |
-| gaussian_noise_0.006 | 0.006 | 0.011 | 0.75 | 0.00 | 0.00425 | EXECUTING |
-| missing_segment | 0.004 | 0.000 | 0.83 | 0.00 | 0.00000 | FAULTED |
-| low_confidence_recovery | 0.006 | 0.011 | 0.92 | 3499.97 | 0.00223 | COMPLETED |
+| Scenario | Plan samples | Median perception ms | p95/p99 perception ms | Median planning ms | p95/p99 planning ms | Median end-to-end ms | p95 path error m | Final state |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| clean | 147 | 0.008 | 0.012 / 0.040 | 0.009 | 0.011 / 0.045 | 1.469 | 0.00131 | EXECUTING |
+| gaussian_noise_0.006 | 147 | 0.008 | 0.020 / 0.048 | 0.009 | 0.012 / 0.071 | 1.491 | 0.00365 | EXECUTING |
+| missing_segment | 73 | 0.005 | 0.008 / 0.030 | 0.000 | 0.001 / 0.001 | 1.149 | 0.00000 | FAULTED |
+| low_confidence_recovery | 186 | 0.007 | 0.010 / 0.023 | 0.008 | 0.010 / 0.048 | 1.368 | 0.00263 | EXECUTING |
 
 ## Development Standards
 
@@ -118,10 +142,10 @@ This repository is intentionally kept reviewable:
 - Work on a feature branch such as `codex/weldpath-guardian`.
 - Keep commits scoped to one logical change.
 - Run `git diff --check` before committing.
-- Run launch-file parsing checks after editing launch files:
+- Run launch-file and tooling parsing checks after editing launch or scripts:
 
 ```bash
-python3 -m py_compile launch/demo.launch.py launch/fault_demo.launch.py
+python3 -m py_compile launch/demo.launch.py launch/fault_demo.launch.py scripts/collect_performance.py
 ```
 
 - Run the full ROS build and test suite from Ubuntu 24.04 / ROS 2 Jazzy:
@@ -137,11 +161,17 @@ colcon test-result
 ## Design Tradeoffs
 
 - The perception stage uses deterministic filtering and smoothing rather than ML so failures are explainable.
-- Local least-squares fitting is used after smoothing to stabilize the published seam path without hiding large gaps.
+- Arc-length local least-squares fitting is used after smoothing so vertical or non-monotonic seams are not forced into an `x`-as-independent-variable model.
 - Gap checks run before smoothing so missing seam segments cannot be averaged into apparently valid geometry.
 - The executor is soft real-time and latency-monitored; it does not claim hard real-time guarantees.
+- Execution work is serialized through a managed `std::jthread` worker with an explicit shutdown path.
 - The planner rejects suspicious geometry early instead of attempting to repair every malformed path.
+- The planner does not use simulator ground truth; path error is computed by monitor/performance evaluation code.
 - Tool orientation is generated from path tangent plus configurable surface normal parameters.
+- Curvature thresholds are expressed as radians per meter through `max_curvature_rad_per_meter`.
+- Simulator runs default to seed `42`, and benchmark output records seed, scenario parameters, git/build metadata, CPU count, and memory.
+- Raw sensor observations use sensor-data QoS; filtered seams, plans, status, and markers use reliable keep-last QoS.
+- Fault strings at ROS message boundaries are backed by a shared C++ `FaultCode` enum and string conversion helpers.
 - The default demo auto-executes new plans for a compact visual loop, while the `ExecuteWeld` action remains available for explicit long-running execution requests.
 
 ## Known Limitations

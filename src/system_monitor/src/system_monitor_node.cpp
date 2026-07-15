@@ -1,25 +1,64 @@
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
+#include <numbers>
 #include <string>
 
 #include "builtin_interfaces/msg/time.hpp"
+#include "geometry_msgs/msg/point.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "weld_interfaces/msg/filtered_seam.hpp"
 #include "weld_interfaces/msg/seam_observation.hpp"
 #include "weld_interfaces/msg/system_status.hpp"
 #include "weld_interfaces/msg/weld_plan.hpp"
 
+namespace {
+
+geometry_msgs::msg::Point CleanReferencePoint(double x_value) {
+  const auto t = std::clamp(x_value / 1.2, 0.0, 1.0);
+  geometry_msgs::msg::Point point;
+  point.x = x_value;
+  point.y = 0.08 * std::sin(t * 2.2 * std::numbers::pi);
+  point.z = 0.03 * std::cos(t * std::numbers::pi);
+  return point;
+}
+
+double Distance(const geometry_msgs::msg::Point& lhs, const geometry_msgs::msg::Point& rhs) {
+  const auto dx = lhs.x - rhs.x;
+  const auto dy = lhs.y - rhs.y;
+  const auto dz = lhs.z - rhs.z;
+  return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+double MeanReferenceError(const weld_interfaces::msg::WeldPlan& plan) {
+  if (plan.waypoints.empty()) {
+    return 0.0;
+  }
+  double total_error = 0.0;
+  for (const auto& waypoint : plan.waypoints) {
+    const auto& point = waypoint.pose.position;
+    total_error += Distance(point, CleanReferencePoint(point.x));
+  }
+  return total_error / static_cast<double>(plan.waypoints.size());
+}
+
+}  // namespace
+
 class SystemMonitorNode final : public rclcpp::Node {
  public:
   SystemMonitorNode() : Node("system_monitor") {
+    const auto reliable_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
+
     raw_sub_ = create_subscription<weld_interfaces::msg::SeamObservation>(
-        "/seam/raw", 10, [this](weld_interfaces::msg::SeamObservation::SharedPtr msg) {
+        "/seam/raw", rclcpp::SensorDataQoS(),
+        [this](weld_interfaces::msg::SeamObservation::SharedPtr msg) {
           ++raw_observations_;
           latest_raw_latency_ms_.store(AgeMs(msg->header.stamp));
         });
 
     filtered_sub_ = create_subscription<weld_interfaces::msg::FilteredSeam>(
-        "/seam/filtered", 10, [this](weld_interfaces::msg::FilteredSeam::SharedPtr msg) {
+        "/seam/filtered", reliable_qos, [this](weld_interfaces::msg::FilteredSeam::SharedPtr msg) {
           ++filtered_observations_;
           rejected_observations_.fetch_add(msg->rejected_points);
           latest_filtered_latency_ms_.store(AgeMs(msg->header.stamp));
@@ -30,10 +69,10 @@ class SystemMonitorNode final : public rclcpp::Node {
         });
 
     plan_sub_ = create_subscription<weld_interfaces::msg::WeldPlan>(
-        "/weld/plan", 10, [this](weld_interfaces::msg::WeldPlan::SharedPtr msg) {
+        "/weld/plan", reliable_qos, [this](weld_interfaces::msg::WeldPlan::SharedPtr msg) {
           latest_plan_latency_ms_.store(AgeMs(msg->header.stamp));
           latest_planning_processing_ms_.store(msg->processing_latency_ms);
-          latest_path_error_.store(msg->path_error);
+          latest_path_error_.store(msg->valid ? MeanReferenceError(*msg) : 0.0);
           if (!msg->valid) {
             ++planning_failures_;
             latest_fault_ = msg->fault_code;
@@ -41,14 +80,11 @@ class SystemMonitorNode final : public rclcpp::Node {
         });
 
     status_sub_ = create_subscription<weld_interfaces::msg::SystemStatus>(
-        "/weld/status", 10, [this](weld_interfaces::msg::SystemStatus::SharedPtr msg) {
+        "/weld/status", reliable_qos, [this](weld_interfaces::msg::SystemStatus::SharedPtr msg) {
           latest_state_ = msg->state;
           execution_faults_.store(msg->execution_faults);
           execution_pauses_.store(msg->execution_pauses);
           latest_recovery_ms_.store(msg->recovery_time_ms);
-          if (msg->path_error > 0.0) {
-            latest_path_error_.store(msg->path_error);
-          }
           latest_fault_ = msg->latest_fault;
         });
 

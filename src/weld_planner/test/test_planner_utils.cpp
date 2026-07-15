@@ -56,11 +56,4 @@ TEST(PlannerUtils, BuildsSurfaceNormalOrientation) {
   EXPECT_NEAR(orientation.w, 1.0, 1e-9);
 }
 
-TEST(PlannerUtils, ComputesReferenceError) {
-  const std::vector<geometry_msgs::msg::Point> points{weld_planner::CleanReferencePoint(0.0),
-                                                      weld_planner::CleanReferencePoint(0.6)};
-
-  EXPECT_NEAR(weld_planner::MeanReferenceError(points), 0.0, 1e-9);
-}
-
 }  // namespace

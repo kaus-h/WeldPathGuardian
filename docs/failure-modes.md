@@ -31,3 +31,7 @@ The `low_confidence_recovery` scenario temporarily lowers confidence below the p
 ## Cancellation
 
 `weld_executor` exposes a cancellable `ExecuteWeld` action. Cancellation is represented with an atomic flag and is checked between waypoint advances.
+
+## External Fault During Action Execution
+
+If `/weld/plan` publishes an invalid plan while an `ExecuteWeld` action is active, the executor transitions to `FAULTED` or `PAUSED` depending on the fault. Accepted action goals always terminate with a result: external faults abort the action with the current fault code, cancellations return a canceled result, and successful completion returns `None`.

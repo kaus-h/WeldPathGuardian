@@ -33,9 +33,9 @@ def spin_until(node, future, timeout_sec=5.0):
     return future.result()
 
 
-def test_concurrent_action_goal_is_rejected_and_active_goal_cancels():
+def start_executor(domain_id):
     env = os.environ.copy()
-    env["ROS_DOMAIN_ID"] = "71"
+    env["ROS_DOMAIN_ID"] = str(domain_id)
     process = subprocess.Popen(
         [
             "ros2",
@@ -53,7 +53,11 @@ def test_concurrent_action_goal_is_rejected_and_active_goal_cancels():
         stderr=subprocess.STDOUT,
         text=True,
     )
+    return env, process
 
+
+def test_concurrent_action_goal_is_rejected_and_active_goal_cancels():
+    env, process = start_executor(71)
     previous_domain = os.environ.get("ROS_DOMAIN_ID")
     os.environ["ROS_DOMAIN_ID"] = env["ROS_DOMAIN_ID"]
     rclpy.init()
@@ -74,6 +78,47 @@ def test_concurrent_action_goal_is_rejected_and_active_goal_cancels():
         result = spin_until(node, first_goal.get_result_async(), timeout_sec=8.0)
         assert result.result.success is False
         assert result.result.fault_code == "Cancelled"
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+        if previous_domain is None:
+            os.environ.pop("ROS_DOMAIN_ID", None)
+        else:
+            os.environ["ROS_DOMAIN_ID"] = previous_domain
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
+def test_active_action_aborts_when_plan_fault_arrives():
+    env, process = start_executor(72)
+    previous_domain = os.environ.get("ROS_DOMAIN_ID")
+    os.environ["ROS_DOMAIN_ID"] = env["ROS_DOMAIN_ID"]
+    rclpy.init()
+    node = rclpy.create_node("executor_action_fault_test")
+    client = ActionClient(node, ExecuteWeld, "execute_weld")
+    fault_pub = node.create_publisher(WeldPlan, "/weld/plan", 10)
+    try:
+        assert client.wait_for_server(timeout_sec=8.0)
+
+        goal = spin_until(node, client.send_goal_async(ExecuteWeld.Goal(plan=make_plan(count=30))))
+        assert goal.accepted
+        time.sleep(0.5)
+
+        fault = WeldPlan()
+        fault.header.frame_id = "weld_cell"
+        fault.valid = False
+        fault.fault_code = "ExcessiveGap"
+        for _ in range(5):
+            fault_pub.publish(fault)
+            rclpy.spin_once(node, timeout_sec=0.05)
+            time.sleep(0.05)
+
+        result = spin_until(node, goal.get_result_async(), timeout_sec=8.0)
+        assert result.result.success is False
+        assert result.result.fault_code == "ExcessiveGap"
     finally:
         node.destroy_node()
         rclpy.shutdown()

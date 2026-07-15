@@ -3,7 +3,7 @@
   <name>weld_interfaces</name>
   <version>0.1.0</version>
   <description>Custom ROS 2 messages and actions for WeldPath Guardian.</description>
-  <maintainer email="manish@example.com">Manish Kalra</maintainer>
+  <maintainer email="kaustav.kalra123@gmail.com">Kaustav Kalra</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
@@ -17,4 +17,3 @@
     <build_type>ament_cmake</build_type>
   </export>
 </package>
-

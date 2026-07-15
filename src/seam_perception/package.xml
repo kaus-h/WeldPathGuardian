@@ -3,7 +3,7 @@
   <name>seam_perception</name>
   <version>0.1.0</version>
   <description>Validation and smoothing for simulated seam observations.</description>
-  <maintainer email="manish@example.com">Manish Kalra</maintainer>
+  <maintainer email="kaustav.kalra123@gmail.com">Kaustav Kalra</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

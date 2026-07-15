@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "fault_codes.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "seam_perception/perception_utils.hpp"
 #include "std_msgs/msg/color_rgba.hpp"
@@ -35,27 +36,31 @@ class SeamPerceptionNode final : public rclcpp::Node {
     min_points_ = declare_parameter<int>("min_points", 4);
     max_neighbor_distance_ = declare_parameter<double>("max_neighbor_distance", 0.20);
 
-    filtered_pub_ = create_publisher<weld_interfaces::msg::FilteredSeam>("/seam/filtered", 10);
-    marker_pub_ =
-        create_publisher<visualization_msgs::msg::MarkerArray>("/seam/filtered_markers", 10);
+    const auto reliable_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
+    filtered_pub_ =
+        create_publisher<weld_interfaces::msg::FilteredSeam>("/seam/filtered", reliable_qos);
+    marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/seam/filtered_markers",
+                                                                         reliable_qos);
     subscription_ = create_subscription<weld_interfaces::msg::SeamObservation>(
-        "/seam/raw", 10,
+        "/seam/raw", rclcpp::SensorDataQoS(),
         [this](weld_interfaces::msg::SeamObservation::SharedPtr msg) { ProcessObservation(*msg); });
   }
 
  private:
   void ProcessObservation(const weld_interfaces::msg::SeamObservation& observation) {
+    namespace fault_codes = weld_interfaces::fault_codes;
+
     const auto processing_start = std::chrono::steady_clock::now();
     weld_interfaces::msg::FilteredSeam filtered;
     filtered.header = observation.header;
     filtered.valid = true;
-    filtered.fault_code = "None";
+    filtered.fault_code = fault_codes::ToString(fault_codes::FaultCode::kNone);
 
     const auto age =
         (get_clock()->now() - rclcpp::Time(observation.header.stamp)).nanoseconds() / 1000000.0;
     if (age > static_cast<double>(stale_threshold_ms_)) {
       filtered.valid = false;
-      filtered.fault_code = "StaleObservation";
+      filtered.fault_code = fault_codes::ToString(fault_codes::FaultCode::kStaleObservation);
     }
 
     std::vector<float> accepted_confidences;
@@ -85,8 +90,11 @@ class SeamPerceptionNode final : public rclcpp::Node {
 
     if (filtered.points.size() < static_cast<std::size_t>(min_points_)) {
       filtered.valid = false;
-      if (filtered.fault_code == "None") {
-        filtered.fault_code = confidence_rejections > 0 ? "LowConfidence" : "InsufficientPoints";
+      if (filtered.fault_code == fault_codes::kNone) {
+        filtered.fault_code =
+            confidence_rejections > 0
+                ? fault_codes::ToString(fault_codes::FaultCode::kLowConfidence)
+                : fault_codes::ToString(fault_codes::FaultCode::kInsufficientPoints);
       }
     }
 
@@ -94,7 +102,7 @@ class SeamPerceptionNode final : public rclcpp::Node {
     if (filtered.valid &&
         seam_perception::HasExcessiveNeighborJump(filtered.points, max_neighbor_distance_)) {
       filtered.valid = false;
-      filtered.fault_code = "ExcessiveGap";
+      filtered.fault_code = fault_codes::ToString(fault_codes::FaultCode::kExcessiveGap);
     }
 
     if (filtered.valid) {

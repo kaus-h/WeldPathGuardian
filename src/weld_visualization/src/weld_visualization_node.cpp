@@ -32,10 +32,11 @@ std_msgs::msg::ColorRGBA ColorForState(const std::string& state) {
 class WeldVisualizationNode final : public rclcpp::Node {
  public:
   WeldVisualizationNode() : Node("weld_visualization") {
-    marker_pub_ =
-        create_publisher<visualization_msgs::msg::MarkerArray>("/weld/status_markers", 10);
+    const auto reliable_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
+    marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/weld/status_markers",
+                                                                         reliable_qos);
     status_sub_ = create_subscription<weld_interfaces::msg::SystemStatus>(
-        "/weld/status", 10,
+        "/weld/status", reliable_qos,
         [this](weld_interfaces::msg::SystemStatus::SharedPtr msg) { PublishStatus(*msg); });
   }
 

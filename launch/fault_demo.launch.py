@@ -9,7 +9,8 @@ def generate_launch_description():
     noise_stddev = LaunchConfiguration("noise_stddev")
     dropout_ratio = LaunchConfiguration("dropout_ratio")
     max_gap = LaunchConfiguration("max_gap")
-    max_curvature = LaunchConfiguration("max_curvature")
+    max_curvature_rad_per_meter = LaunchConfiguration("max_curvature_rad_per_meter")
+    seed = LaunchConfiguration("seed")
 
     return LaunchDescription(
         [
@@ -17,7 +18,8 @@ def generate_launch_description():
             DeclareLaunchArgument("noise_stddev", default_value="0.006"),
             DeclareLaunchArgument("dropout_ratio", default_value="0.2"),
             DeclareLaunchArgument("max_gap", default_value="0.12"),
-            DeclareLaunchArgument("max_curvature", default_value="45.0"),
+            DeclareLaunchArgument("max_curvature_rad_per_meter", default_value="45.0"),
+            DeclareLaunchArgument("seed", default_value="42"),
             Node(
                 package="seam_sensor",
                 executable="seam_sensor_node",
@@ -31,6 +33,7 @@ def generate_launch_description():
                         "noise_stddev": noise_stddev,
                         "dropout_ratio": dropout_ratio,
                         "stale_offset_ms": 900,
+                        "seed": seed,
                     }
                 ],
             ),
@@ -58,7 +61,7 @@ def generate_launch_description():
                     {
                         "waypoint_spacing": 0.05,
                         "max_gap": max_gap,
-                        "max_curvature": max_curvature,
+                        "max_curvature_rad_per_meter": max_curvature_rad_per_meter,
                         "tool_speed": 0.04,
                     }
                 ],
