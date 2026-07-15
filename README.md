@@ -3,7 +3,9 @@
 WeldPath Guardian is a C++20/ROS 2 simulation of a fault-aware robotic welding pipeline. It converts noisy 3D seam observations into validated tool paths, executes them through a cancellable state machine, and monitors latency, data quality, and fault recovery. The project focuses on modular robotics architecture, deterministic behavior, concurrency, testing, and reliability under imperfect sensor conditions.
 
 ## Architecture
+RViz markers are published for raw observations, filtered seam estimates, planned waypoints, rejected observations, and current execution status.
 
+![WeldPath Guardian demo](docs/media/weldpath_guardian_demo.gif)
 ```text
 seam_sensor
      |
@@ -24,9 +26,7 @@ weld_executor  <------ ExecuteWeld action
 system_monitor
 ```
 
-RViz markers are published for raw observations, filtered seam estimates, planned waypoints, rejected observations, and current execution status.
 
-![WeldPath Guardian demo](docs/media/weldpath_guardian_demo.gif)
 
 ## Packages
 
