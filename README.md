@@ -26,6 +26,8 @@ system_monitor
 
 RViz markers are published for raw observations, filtered seam estimates, planned waypoints, rejected observations, and current execution status.
 
+![WeldPath Guardian demo](docs/media/weldpath_guardian_demo.gif)
+
 ## Packages
 
 | Package | Purpose |
@@ -73,6 +75,13 @@ Common scenarios:
 - `stale_messages`
 - `sudden_offset`
 - `complete_dropout`
+- `low_confidence_recovery`
+
+The demo launch accepts parameter overrides for measured runs:
+
+```bash
+ros2 launch ./launch/demo.launch.py scenario:=gaussian_noise noise_stddev:=0.010 dropout_ratio:=0.10
+```
 
 Open RViz and add:
 
@@ -89,7 +98,18 @@ colcon test --event-handlers console_direct+
 colcon test-result
 ```
 
-The tests cover finite-point rejection, smoothing, insufficient geometry, waypoint spacing, curvature/gap validation, and state-machine transitions.
+The tests cover finite-point rejection, local least-squares path fitting, insufficient geometry, waypoint spacing, curvature/gap validation, surface-normal orientation, state-machine transitions, action cancellation/concurrency, and runtime launch behavior for clean, missing-segment, and low-confidence recovery scenarios.
+
+## Performance Snapshot
+
+Measured on 2026-07-14 in WSL Ubuntu 24.04 / ROS 2 Jazzy. Full results and raw samples are in [docs/performance-results.md](docs/performance-results.md) and `docs/performance-latest.json`.
+
+| Scenario | Median perception ms | Median planning ms | Median end-to-end ms | Recovery ms | Max path error m | Final state |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| clean | 0.007 | 0.0115 | 0.87 | 0.00 | 0.00131 | EXECUTING |
+| gaussian_noise_0.006 | 0.006 | 0.011 | 0.75 | 0.00 | 0.00425 | EXECUTING |
+| missing_segment | 0.004 | 0.000 | 0.83 | 0.00 | 0.00000 | FAULTED |
+| low_confidence_recovery | 0.006 | 0.011 | 0.92 | 3499.97 | 0.00223 | COMPLETED |
 
 ## Development Standards
 
@@ -117,13 +137,15 @@ colcon test-result
 ## Design Tradeoffs
 
 - The perception stage uses deterministic filtering and smoothing rather than ML so failures are explainable.
+- Local least-squares fitting is used after smoothing to stabilize the published seam path without hiding large gaps.
 - Gap checks run before smoothing so missing seam segments cannot be averaged into apparently valid geometry.
 - The executor is soft real-time and latency-monitored; it does not claim hard real-time guarantees.
 - The planner rejects suspicious geometry early instead of attempting to repair every malformed path.
+- Tool orientation is generated from path tangent plus configurable surface normal parameters.
 - The default demo auto-executes new plans for a compact visual loop, while the `ExecuteWeld` action remains available for explicit long-running execution requests.
 
 ## Known Limitations
 
 - No physical robot or industrial welding physics are modeled.
 - MoveIt 2 integration is intentionally left as a stretch feature.
-- Performance numbers should be generated on the target Ubuntu/ROS 2 machine before using them in a resume or demo.
+- Performance numbers are from the local WSL ROS 2 Jazzy environment and should be remeasured on any different target machine before publishing final resume numbers.

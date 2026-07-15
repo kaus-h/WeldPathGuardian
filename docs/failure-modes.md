@@ -24,7 +24,10 @@ The `sudden_offset` scenario shifts part of the seam. Perception and planning st
 
 The `complete_dropout` scenario publishes empty/invalid observations. The pipeline transitions into invalid perception and planning failure instead of executing unsafe waypoints.
 
+## Low Confidence Recovery
+
+The `low_confidence_recovery` scenario temporarily lowers confidence below the perception threshold. The executor enters `PAUSED`, then resumes when valid observations return and reports recovery time.
+
 ## Cancellation
 
 `weld_executor` exposes a cancellable `ExecuteWeld` action. Cancellation is represented with an atomic flag and is checked between waypoint advances.
-
