@@ -131,3 +131,38 @@ def test_active_action_aborts_when_plan_fault_arrives():
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
+
+
+def test_completed_action_allows_next_action_through_terminal_reset():
+    env, process = start_executor(73)
+    previous_domain = os.environ.get("ROS_DOMAIN_ID")
+    os.environ["ROS_DOMAIN_ID"] = env["ROS_DOMAIN_ID"]
+    rclpy.init()
+    node = rclpy.create_node("executor_action_terminal_reset_test")
+    client = ActionClient(node, ExecuteWeld, "execute_weld")
+    try:
+        assert client.wait_for_server(timeout_sec=8.0)
+
+        first_goal = spin_until(node, client.send_goal_async(ExecuteWeld.Goal(plan=make_plan(count=2))))
+        assert first_goal.accepted
+        first_result = spin_until(node, first_goal.get_result_async(), timeout_sec=8.0)
+        assert first_result.result.success is True
+        assert first_result.result.fault_code == "None"
+
+        second_goal = spin_until(node, client.send_goal_async(ExecuteWeld.Goal(plan=make_plan(count=2))))
+        assert second_goal.accepted
+        second_result = spin_until(node, second_goal.get_result_async(), timeout_sec=8.0)
+        assert second_result.result.success is True
+        assert second_result.result.fault_code == "None"
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+        if previous_domain is None:
+            os.environ.pop("ROS_DOMAIN_ID", None)
+        else:
+            os.environ["ROS_DOMAIN_ID"] = previous_domain
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()

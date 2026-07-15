@@ -1,3 +1,4 @@
+#include <cmath>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -11,6 +12,16 @@ geometry_msgs::msg::Point Point(double x, double y, double z) {
   point.y = y;
   point.z = z;
   return point;
+}
+
+void ExpectFiniteUnitQuaternion(const geometry_msgs::msg::Quaternion& orientation) {
+  EXPECT_TRUE(std::isfinite(orientation.x));
+  EXPECT_TRUE(std::isfinite(orientation.y));
+  EXPECT_TRUE(std::isfinite(orientation.z));
+  EXPECT_TRUE(std::isfinite(orientation.w));
+  const auto norm = std::sqrt((orientation.x * orientation.x) + (orientation.y * orientation.y) +
+                              (orientation.z * orientation.z) + (orientation.w * orientation.w));
+  EXPECT_NEAR(norm, 1.0, 1e-9);
 }
 
 TEST(PlannerUtils, ComputesPathLength) {
@@ -54,6 +65,29 @@ TEST(PlannerUtils, BuildsSurfaceNormalOrientation) {
   EXPECT_NEAR(orientation.y, 0.0, 1e-9);
   EXPECT_NEAR(orientation.z, 0.0, 1e-9);
   EXPECT_NEAR(orientation.w, 1.0, 1e-9);
+}
+
+TEST(PlannerUtils, BuildsFiniteOrientationWhenTangentParallelsNormal) {
+  const auto orientation = weld_planner::MakeToolOrientation(
+      Point(0.0, 0.0, 0.0), Point(0.0, 1.0, 0.0), Point(0.0, 1.0, 0.0));
+
+  ExpectFiniteUnitQuaternion(orientation);
+}
+
+TEST(PlannerUtils, BuildsFiniteOrientationForPrincipalAxes) {
+  ExpectFiniteUnitQuaternion(weld_planner::MakeToolOrientation(
+      Point(0.0, 0.0, 0.0), Point(1.0, 0.0, 0.0), Point(0.0, 0.0, 1.0)));
+  ExpectFiniteUnitQuaternion(weld_planner::MakeToolOrientation(
+      Point(0.0, 0.0, 0.0), Point(0.0, 1.0, 0.0), Point(0.0, 0.0, 1.0)));
+  ExpectFiniteUnitQuaternion(weld_planner::MakeToolOrientation(
+      Point(0.0, 0.0, 0.0), Point(0.0, 0.0, 1.0), Point(0.0, 0.0, 1.0)));
+}
+
+TEST(PlannerUtils, BuildsFiniteOrientationForZeroLengthTangent) {
+  const auto orientation = weld_planner::MakeToolOrientation(
+      Point(0.0, 0.0, 0.0), Point(0.0, 0.0, 0.0), Point(0.0, 0.0, 1.0));
+
+  ExpectFiniteUnitQuaternion(orientation);
 }
 
 }  // namespace

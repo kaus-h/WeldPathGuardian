@@ -6,7 +6,7 @@ uint32 rejected_observations
 uint32 planning_failures
 uint32 execution_faults
 uint32 execution_pauses
+uint32 dropped_plans
 float64 latest_latency_ms
 float64 recovery_time_ms
-float64 path_error
 string latest_fault

@@ -84,6 +84,7 @@ class SystemMonitorNode final : public rclcpp::Node {
           latest_state_ = msg->state;
           execution_faults_.store(msg->execution_faults);
           execution_pauses_.store(msg->execution_pauses);
+          dropped_plans_.store(msg->dropped_plans);
           latest_recovery_ms_.store(msg->recovery_time_ms);
           latest_fault_ = msg->latest_fault;
         });
@@ -100,15 +101,16 @@ class SystemMonitorNode final : public rclcpp::Node {
   void Report() {
     RCLCPP_INFO(get_logger(),
                 "state=%s raw=%u filtered=%u rejected=%u plan_failures=%u exec_faults=%u "
-                "pauses=%u recovery_ms=%.2f path_error=%.5f "
+                "pauses=%u dropped_plans=%u recovery_ms=%.2f path_error=%.5f "
                 "processing_ms(perception=%.3f planning=%.3f) "
                 "latency_ms(raw=%.2f filtered=%.2f plan=%.2f) latest_fault=%s",
                 latest_state_.c_str(), raw_observations_.load(), filtered_observations_.load(),
                 rejected_observations_.load(), planning_failures_.load(), execution_faults_.load(),
-                execution_pauses_.load(), latest_recovery_ms_.load(), latest_path_error_.load(),
-                latest_perception_processing_ms_.load(), latest_planning_processing_ms_.load(),
-                latest_raw_latency_ms_.load(), latest_filtered_latency_ms_.load(),
-                latest_plan_latency_ms_.load(), latest_fault_.c_str());
+                execution_pauses_.load(), dropped_plans_.load(), latest_recovery_ms_.load(),
+                latest_path_error_.load(), latest_perception_processing_ms_.load(),
+                latest_planning_processing_ms_.load(), latest_raw_latency_ms_.load(),
+                latest_filtered_latency_ms_.load(), latest_plan_latency_ms_.load(),
+                latest_fault_.c_str());
   }
 
   std::atomic<uint32_t> raw_observations_{0};
@@ -117,6 +119,7 @@ class SystemMonitorNode final : public rclcpp::Node {
   std::atomic<uint32_t> planning_failures_{0};
   std::atomic<uint32_t> execution_faults_{0};
   std::atomic<uint32_t> execution_pauses_{0};
+  std::atomic<uint32_t> dropped_plans_{0};
   std::atomic<double> latest_raw_latency_ms_{0.0};
   std::atomic<double> latest_filtered_latency_ms_{0.0};
   std::atomic<double> latest_plan_latency_ms_{0.0};

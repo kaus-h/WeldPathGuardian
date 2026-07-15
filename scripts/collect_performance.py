@@ -132,16 +132,25 @@ def mean_reference_error(plan):
     return total / len(plan.waypoints)
 
 
-def max_sustained_hz(receive_times):
-    if not receive_times:
+def mean_rate_hz(receive_times):
+    if len(receive_times) < 2:
         return 0.0
+    elapsed = receive_times[-1] - receive_times[0]
+    if elapsed <= 0.0:
+        return 0.0
+    return (len(receive_times) - 1) / elapsed
+
+
+def max_messages_in_one_second_window(receive_times):
+    if not receive_times:
+        return 0
     best = 0
     left = 0
     for right, timestamp in enumerate(receive_times):
         while timestamp - receive_times[left] > 1.0:
             left += 1
         best = max(best, right - left + 1)
-    return float(best)
+    return best
 
 
 def interarrival_jitter_ms(receive_times):
@@ -240,6 +249,7 @@ def stop_process(process):
 def start_launch(config, env):
     launch_path = ROOT / "launch" / config["launch"]
     command = ["ros2", "launch", str(launch_path), *config["args"]]
+    recorded_command = ["ros2", "launch", f"launch/{config['launch']}", *config["args"]]
     popen_kwargs = {
         "env": env,
         "stdout": subprocess.PIPE,
@@ -248,7 +258,7 @@ def start_launch(config, env):
     }
     if os.name == "posix":
         popen_kwargs["preexec_fn"] = os.setsid
-    return command, subprocess.Popen(command, **popen_kwargs)
+    return recorded_command, subprocess.Popen(command, **popen_kwargs)
 
 
 class ScenarioCollector:
@@ -292,6 +302,7 @@ class ScenarioCollector:
                 "planning_failures": int(msg.planning_failures),
                 "execution_faults": int(msg.execution_faults),
                 "execution_pauses": int(msg.execution_pauses),
+                "dropped_plans": int(msg.dropped_plans),
                 "recovery_time_ms": float(msg.recovery_time_ms),
             }
         )
@@ -307,16 +318,20 @@ class ScenarioCollector:
             "planning_processing_ms": stats(self.plan_processing_ms),
             "end_to_end_plan_age_ms": stats(self.plan_age_ms),
             "path_error_m": stats(self.path_errors),
-            "max_sustained_input_hz": max_sustained_hz(self.raw_receive_times),
+            "input_rate_hz": mean_rate_hz(self.raw_receive_times),
+            "max_messages_in_one_second_window": max_messages_in_one_second_window(
+                self.raw_receive_times
+            ),
             "raw_interarrival_jitter_ms": interarrival_jitter_ms(self.raw_receive_times),
             "recovery_time_ms": max(
                 [status["recovery_time_ms"] for status in self.statuses] or [0.0]
             ),
-            "final_state": final_status.get("state", "UNKNOWN"),
-            "final_fault": final_status.get("fault", "UNKNOWN"),
+            "last_observed_state": final_status.get("state", "UNKNOWN"),
+            "last_observed_fault": final_status.get("fault", "UNKNOWN"),
             "planning_failures": final_status.get("planning_failures", 0),
             "execution_faults": final_status.get("execution_faults", 0),
             "execution_pauses": final_status.get("execution_pauses", 0),
+            "dropped_plans": final_status.get("dropped_plans", 0),
             "plan_faults": sorted(set(self.plan_faults)),
         }
 

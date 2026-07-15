@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -63,7 +64,9 @@ class WeldExecutorNode final : public rclcpp::Node {
   ~WeldExecutorNode() override {
     if (worker_.joinable()) {
       worker_.request_stop();
+      cancel_requested_.store(true);
       job_cv_.notify_all();
+      worker_.join();
     }
   }
 
@@ -108,12 +111,10 @@ class WeldExecutorNode final : public rclcpp::Node {
   void OnPlan(const weld_interfaces::msg::WeldPlan& plan) {
     if (!plan.valid) {
       planning_failures_.fetch_add(1);
-      SetLastFault(plan.fault_code);
       if (plan.fault_code == fault_codes::kLowConfidence) {
-        execution_pauses_.fetch_add(1);
-        MarkPauseStarted();
-        TrySetState(weld_executor::ExecutionState::kPaused);
+        EnterPausedForLowConfidence();
       } else {
+        SetLastFault(plan.fault_code);
         TrySetState(weld_executor::ExecutionState::kFaulted);
       }
       PublishStatus();
@@ -124,8 +125,9 @@ class WeldExecutorNode final : public rclcpp::Node {
       return;
     }
 
-    latest_path_error_.store(plan.path_error);
-    EnqueueExecution(plan, nullptr);
+    if (!EnqueueExecution(plan, nullptr)) {
+      dropped_plans_.fetch_add(1);
+    }
   }
 
   bool EnqueueExecution(const weld_interfaces::msg::WeldPlan& plan,
@@ -164,7 +166,7 @@ class WeldExecutorNode final : public rclcpp::Node {
         worker_busy_ = true;
       }
 
-      ExecutePlan(job.plan, job.goal_handle);
+      ExecutePlan(stop_token, job.plan, job.goal_handle);
 
       {
         std::scoped_lock lock(job_mutex_);
@@ -176,14 +178,22 @@ class WeldExecutorNode final : public rclcpp::Node {
 
   bool BeginExecution() {
     std::scoped_lock lock(state_mutex_);
+    if (weld_executor::IsTerminal(state_)) {
+      if (!weld_executor::CanTransition(state_, weld_executor::ExecutionState::kIdle)) {
+        return false;
+      }
+      state_ = weld_executor::ExecutionState::kIdle;
+    }
     const auto can_resume = state_ == weld_executor::ExecutionState::kPaused;
-    if (state_ != weld_executor::ExecutionState::kIdle && !weld_executor::IsTerminal(state_) &&
-        !can_resume) {
+    if (state_ != weld_executor::ExecutionState::kIdle && !can_resume) {
       return false;
     }
     if (can_resume && pause_active_) {
       latest_recovery_ms_.store(ElapsedMsUnlocked(pause_started_));
       pause_active_ = false;
+    }
+    if (!weld_executor::CanTransition(state_, weld_executor::ExecutionState::kValidating)) {
+      return false;
     }
     state_ = weld_executor::ExecutionState::kValidating;
     last_fault_ = fault_codes::kNone;
@@ -223,15 +233,54 @@ class WeldExecutorNode final : public rclcpp::Node {
     return last_fault_.empty() ? std::string{fault_codes::kNone} : last_fault_;
   }
 
-  void MarkPauseStarted() {
+  void EnterPausedForLowConfidence() {
     std::scoped_lock lock(state_mutex_);
+    last_fault_ = fault_codes::kLowConfidence;
+    if (state_ == weld_executor::ExecutionState::kPaused) {
+      if (!pause_active_) {
+        pause_started_ = std::chrono::steady_clock::now();
+        pause_active_ = true;
+      }
+      return;
+    }
+    if (!weld_executor::CanTransition(state_, weld_executor::ExecutionState::kPaused)) {
+      state_ = weld_executor::ExecutionState::kFaulted;
+      last_fault_ = fault_codes::kInvalidStateTransition;
+      return;
+    }
+    state_ = weld_executor::ExecutionState::kPaused;
+    execution_pauses_.fetch_add(1);
     if (!pause_active_) {
       pause_started_ = std::chrono::steady_clock::now();
       pause_active_ = true;
     }
   }
 
-  void ExecutePlan(const weld_interfaces::msg::WeldPlan& plan,
+  bool StopAwareSleep(std::stop_token stop_token, std::chrono::milliseconds duration) const {
+    constexpr auto kPollInterval = std::chrono::milliseconds(10);
+    const auto deadline = std::chrono::steady_clock::now() + duration;
+    while (!stop_token.stop_requested() && !cancel_requested_.load()) {
+      const auto now = std::chrono::steady_clock::now();
+      if (now >= deadline) {
+        return true;
+      }
+      std::this_thread::sleep_for(std::min(
+          kPollInterval, std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now)));
+    }
+    return false;
+  }
+
+  void FinishInterrupted(const std::shared_ptr<GoalHandleExecuteWeld>& goal_handle,
+                         std::chrono::steady_clock::time_point start) {
+    SetLastFault(fault_codes::kInterrupted);
+    TrySetState(weld_executor::ExecutionState::kCancelled);
+    latest_execution_ms_.store(ElapsedMs(start));
+    PublishStatus();
+    CompleteAborted(goal_handle, fault_codes::kInterrupted, completed_waypoints_.load(),
+                    latest_execution_ms_.load());
+  }
+
+  void ExecutePlan(std::stop_token stop_token, const weld_interfaces::msg::WeldPlan& plan,
                    std::shared_ptr<GoalHandleExecuteWeld> goal_handle) {
     const auto start = std::chrono::steady_clock::now();
     if (!BeginExecution()) {
@@ -250,14 +299,20 @@ class WeldExecutorNode final : public rclcpp::Node {
       return;
     }
     PublishStatus();
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    if (!StopAwareSleep(stop_token, std::chrono::milliseconds(20))) {
+      FinishInterrupted(goal_handle, start);
+      return;
+    }
 
     if (!TrySetState(weld_executor::ExecutionState::kReady)) {
       FinishWithFault(goal_handle, LastFault(), start);
       return;
     }
     PublishStatus();
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    if (!StopAwareSleep(stop_token, std::chrono::milliseconds(20))) {
+      FinishInterrupted(goal_handle, start);
+      return;
+    }
 
     if (!TrySetState(weld_executor::ExecutionState::kExecuting)) {
       FinishWithFault(goal_handle, LastFault(), start);
@@ -266,6 +321,10 @@ class WeldExecutorNode final : public rclcpp::Node {
     PublishStatus();
 
     for (std::size_t i = 0; i < plan.waypoints.size(); ++i) {
+      if (stop_token.stop_requested()) {
+        FinishInterrupted(goal_handle, start);
+        return;
+      }
       if (cancel_requested_.load() || (goal_handle && goal_handle->is_canceling())) {
         TrySetState(weld_executor::ExecutionState::kCancelled);
         SetLastFault(fault_codes::kCancelled);
@@ -302,7 +361,12 @@ class WeldExecutorNode final : public rclcpp::Node {
         goal_handle->publish_feedback(feedback);
       }
 
-      std::this_thread::sleep_for(std::chrono::milliseconds(waypoint_delay_ms_));
+      if (!StopAwareSleep(stop_token, std::chrono::milliseconds(waypoint_delay_ms_))) {
+        if (stop_token.stop_requested()) {
+          FinishInterrupted(goal_handle, start);
+          return;
+        }
+      }
     }
 
     if (CurrentExecutionState() != weld_executor::ExecutionState::kExecuting ||
@@ -396,9 +460,9 @@ class WeldExecutorNode final : public rclcpp::Node {
     status.planning_failures = planning_failures_.load();
     status.execution_faults = execution_faults_.load();
     status.execution_pauses = execution_pauses_.load();
+    status.dropped_plans = dropped_plans_.load();
     status.latest_latency_ms = latest_execution_ms_.load();
     status.recovery_time_ms = latest_recovery_ms_.load();
-    status.path_error = latest_path_error_.load();
     status_pub_->publish(status);
   }
 
@@ -411,9 +475,9 @@ class WeldExecutorNode final : public rclcpp::Node {
   std::atomic<uint32_t> planning_failures_{0};
   std::atomic<uint32_t> execution_faults_{0};
   std::atomic<uint32_t> execution_pauses_{0};
+  std::atomic<uint32_t> dropped_plans_{0};
   std::atomic<double> latest_execution_ms_{0.0};
   std::atomic<double> latest_recovery_ms_{0.0};
-  std::atomic<double> latest_path_error_{0.0};
   std::string last_fault_{fault_codes::kNone};
   std::chrono::steady_clock::time_point pause_started_;
   bool pause_active_{false};

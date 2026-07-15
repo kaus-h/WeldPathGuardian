@@ -1,6 +1,6 @@
 # WeldPath Guardian
 
-[![ROS 2 CI](https://github.com/kaus-h/WeldPathGuardian/actions/workflows/ros2-ci.yml/badge.svg?branch=weldpathG)](https://github.com/kaus-h/WeldPathGuardian/actions/workflows/ros2-ci.yml)
+[![ROS 2 CI](https://github.com/kaus-h/WeldPathGuardian/actions/workflows/ros2-ci.yml/badge.svg?branch=main)](https://github.com/kaus-h/WeldPathGuardian/actions/workflows/ros2-ci.yml)
 
 WeldPath Guardian is a C++20/ROS 2 simulation of a fault-aware robotic welding pipeline. It converts noisy 3D seam observations into validated tool paths, executes them through a cancellable state machine, and monitors latency, data quality, and fault recovery. The project focuses on modular robotics architecture, deterministic behavior, concurrency, testing, and reliability under imperfect sensor conditions.
 
@@ -128,7 +128,7 @@ The tests cover finite-point rejection, arc-length local least-squares path fitt
 
 Measured on 2026-07-14 in WSL Ubuntu 24.04 / ROS 2 Jazzy. Full results and raw samples are in [docs/performance-results.md](docs/performance-results.md) and `docs/performance-latest.json`.
 
-| Scenario | Plan samples | Median perception ms | p95/p99 perception ms | Median planning ms | p95/p99 planning ms | Median end-to-end ms | p95 path error m | Final state |
+| Scenario | Plan samples | Median perception ms | p95/p99 perception ms | Median planning ms | p95/p99 planning ms | Median end-to-end ms | p95 path error m | Last observed state |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | clean | 92 | 0.008 | 0.021 / 0.082 | 0.008 | 0.010 / 0.036 | 1.530 | 0.00131 | READY |
 | gaussian_noise_0.006 | 117 | 0.007 | 0.021 / 0.028 | 0.008 | 0.011 / 0.059 | 1.463 | 0.00394 | EXECUTING |
@@ -164,7 +164,7 @@ colcon test-result
 - Arc-length local least-squares fitting is used after smoothing so vertical or non-monotonic seams are not forced into an `x`-as-independent-variable model.
 - Gap checks run before smoothing so missing seam segments cannot be averaged into apparently valid geometry.
 - The executor is soft real-time and latency-monitored; it does not claim hard real-time guarantees.
-- Execution work is serialized through a managed `std::jthread` worker with an explicit shutdown path.
+- Execution work is serialized through a managed `std::jthread` worker with an explicit shutdown and join path.
 - The planner rejects suspicious geometry early instead of attempting to repair every malformed path.
 - The planner does not use simulator ground truth; path error is computed by monitor/performance evaluation code.
 - Tool orientation is generated from path tangent plus configurable surface normal parameters.
@@ -172,7 +172,7 @@ colcon test-result
 - Simulator runs default to seed `42`, and benchmark output records seed, scenario parameters, git/build metadata, CPU count, and memory.
 - Raw sensor observations use sensor-data QoS; filtered seams, plans, status, and markers use reliable keep-last QoS.
 - Fault strings at ROS message boundaries are backed by a shared C++ `FaultCode` enum and string conversion helpers.
-- The default demo auto-executes new plans for a compact visual loop, while the `ExecuteWeld` action remains available for explicit long-running execution requests.
+- The default demo auto-executes new plans with a first-plan-wins policy while the worker is busy; dropped auto-plans are counted in status telemetry. The `ExecuteWeld` action remains available for explicit long-running execution requests.
 
 ## Known Limitations
 

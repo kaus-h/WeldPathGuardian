@@ -127,7 +127,9 @@ inline geometry_msgs::msg::Quaternion MakeToolOrientation(
 
   auto lateral = normal.cross(tangent);
   if (lateral.length() <= 1e-9) {
-    lateral = tf2::Vector3{0.0, 1.0, 0.0};
+    const tf2::Vector3 reference =
+        std::abs(tangent.z()) < 0.9 ? tf2::Vector3{0.0, 0.0, 1.0} : tf2::Vector3{1.0, 0.0, 0.0};
+    lateral = reference.cross(tangent);
   }
   lateral.normalize();
   normal = tangent.cross(lateral);

@@ -31,6 +31,13 @@ TEST(StateMachine, TerminalStatesReturnOnlyToIdle) {
   using weld_executor::ExecutionState;
 
   EXPECT_TRUE(weld_executor::CanTransition(ExecutionState::kCompleted, ExecutionState::kIdle));
+  EXPECT_TRUE(weld_executor::CanTransition(ExecutionState::kFaulted, ExecutionState::kIdle));
+  EXPECT_TRUE(weld_executor::CanTransition(ExecutionState::kCancelled, ExecutionState::kIdle));
+  EXPECT_FALSE(
+      weld_executor::CanTransition(ExecutionState::kCompleted, ExecutionState::kValidating));
+  EXPECT_FALSE(weld_executor::CanTransition(ExecutionState::kFaulted, ExecutionState::kValidating));
+  EXPECT_FALSE(
+      weld_executor::CanTransition(ExecutionState::kCancelled, ExecutionState::kValidating));
   EXPECT_FALSE(
       weld_executor::CanTransition(ExecutionState::kCompleted, ExecutionState::kExecuting));
 }

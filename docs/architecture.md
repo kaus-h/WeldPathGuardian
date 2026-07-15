@@ -32,7 +32,7 @@ WeldPath Guardian is organized as a small ROS 2 graph that mirrors a perception-
 
 The executor node uses separate callback groups for plan input, action handling, and status publishing. Shared state is protected with a mutex, while cancellation and fault flags use atomics. Execution work runs outside the state lock.
 
-Plans are serialized through one managed `std::jthread` worker and a condition-variable mailbox. The node destructor requests worker shutdown and wakes the worker before destruction, avoiding detached threads that could outlive the node.
+Plans are serialized through one managed `std::jthread` worker and a condition-variable mailbox. The node destructor requests worker shutdown, wakes the worker, and joins it while ROS publishers/action resources are still alive.
 
 The launch files use ROS 2 processes, so callbacks across nodes are naturally distributed. The executor itself is written to run correctly under a `MultiThreadedExecutor`.
 
@@ -56,7 +56,7 @@ Faults are represented as strings at message boundaries to keep RViz, logging, a
 
 `FilteredSeam` and `WeldPlan` carry component `processing_latency_ms` values.
 `SystemStatus` reports planning failures, execution faults, execution pauses,
-recovery time, execution latency, and path error.
+recovery time, execution latency, and dropped auto-execution plans.
 
 The planner does not know simulator ground truth. Path error against the clean
 simulator reference curve is computed by `system_monitor` and the performance
@@ -64,8 +64,13 @@ collector for evaluation only.
 
 The performance collector subscribes to the graph and records per-message
 perception latency, planning latency, end-to-end message age, path error,
-sample counts, p95/p99/max/stddev, input jitter, sustained throughput, seed,
-git/build metadata, CPU count, and memory.
+sample counts, p95/p99/max/stddev, input jitter, mean input rate, maximum
+messages in an inclusive one-second window, seed, git/build metadata, CPU count,
+and memory.
+
+The demo auto-execution policy is first-plan-wins while the worker is busy:
+new `/weld/plan` messages are dropped rather than queued or used to supersede
+the active job, and the executor reports that count as `dropped_plans`.
 
 ## QoS And Units
 
