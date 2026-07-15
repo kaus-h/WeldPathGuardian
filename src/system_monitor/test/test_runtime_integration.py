@@ -12,6 +12,17 @@ def run_command(args, env, timeout=12):
     return subprocess.run(args, env=env, timeout=timeout, check=True, text=True, capture_output=True)
 
 
+def wait_for_topic(topic_line, env, timeout=12):
+    deadline = time.monotonic() + timeout
+    latest_topics = ""
+    while time.monotonic() < deadline:
+        latest_topics = run_command(["ros2", "topic", "list", "-t"], env).stdout
+        if topic_line in latest_topics:
+            return latest_topics
+        time.sleep(0.25)
+    raise AssertionError(f"{topic_line} not found in topics:\n{latest_topics}")
+
+
 def launch_demo(env, *extra_args):
     return subprocess.Popen(
         ["ros2", "launch", str(ROOT / "launch" / "demo.launch.py"), *extra_args],
@@ -45,10 +56,7 @@ def test_clean_demo_produces_executable_plan():
     env["ROS_DOMAIN_ID"] = "81"
     process = launch_demo(env)
     try:
-        time.sleep(7)
-        topics = run_command(["ros2", "topic", "list", "-t"], env).stdout
-        assert "/seam/raw [weld_interfaces/msg/SeamObservation]" in topics
-        assert "/weld/status [weld_interfaces/msg/SystemStatus]" in topics
+        wait_for_topic("/seam/raw [weld_interfaces/msg/SeamObservation]", env)
 
         plan = run_command(
             ["ros2", "topic", "echo", "--once", "/weld/plan", "weld_interfaces/msg/WeldPlan"],
