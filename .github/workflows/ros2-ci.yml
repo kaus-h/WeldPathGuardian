@@ -38,10 +38,12 @@ jobs:
         shell: bash
         run: |
           source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
           bash scripts/run_static_checks.sh
       - name: Test
         shell: bash
         run: |
           source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
           colcon test --event-handlers console_direct+
           colcon test-result
