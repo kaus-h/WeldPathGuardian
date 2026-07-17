@@ -178,4 +178,4 @@ colcon test-result
 
 - No physical robot or industrial welding physics are modeled.
 - MoveIt 2 integration is intentionally left as a stretch feature.
-- Performance numbers are from the local WSL ROS 2 Jazzy environment and should be remeasured on any different target machine before publishing final resume numbers.
+- Performance numbers are from the local WSL ROS 2 Jazzy environment and should be remeasured on any different target machine before publishing final numbers.
